@@ -1,0 +1,32 @@
+{
+  "name": "语芽",
+  "private": true,
+  "version": "0.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vue-tsc -b && vite build",
+    "preview": "vite preview"
+  },
+  "dependencies": {
+    "@element-plus/icons-vue": "^2.3.2",
+    "axios": "^1.19.0",
+    "canvas-confetti": "^1.9.4",
+    "element-plus": "^2.14.3",
+    "highlight.js": "^11.11.1",
+    "marked": "^18.0.9",
+    "marked-highlight": "^2.2.4",
+    "pinia": "^4.0.2",
+    "vue": "^3.5.40",
+    "vue-router": "^4.6.4"
+  },
+  "devDependencies": {
+    "@types/canvas-confetti": "^1.9.0",
+    "@types/node": "^24.13.3",
+    "@vitejs/plugin-vue": "^6.0.8",
+    "@vue/tsconfig": "^0.9.1",
+    "typescript": "~6.0.2",
+    "vite": "^8.2.0",
+    "vue-tsc": "^3.3.8"
+  }
+}
