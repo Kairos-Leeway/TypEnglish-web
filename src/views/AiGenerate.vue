@@ -9,16 +9,20 @@ const router = useRouter()
 const mode = ref<'word' | 'sentence'>('word')
 const topic = ref('')
 const count = ref(10)
+// 上限：单词 100，句子 200
+const countMax = computed(() => mode.value === 'word' ? 100 : 200)
+const countMin = computed(() => mode.value === 'word' ? 5 : 5)
 
-watch(mode, (newMode) => {
+// 切换模式时修正越界值
+watch(mode, () => {
   result.value = null
   progress.value = null
-  if (newMode === 'word') {
-    if (count.value > 50 || count.value < 5) count.value = 10
-  } else {
-    if (count.value > 100 || count.value < 5) count.value = 30
-  }
+  clampCount()
 })
+function clampCount() {
+  if (count.value > countMax.value) count.value = countMax.value
+  if (count.value < countMin.value) count.value = 10
+}
 const difficulty = ref(2)
 const language = ref('en')
 const generating = ref(false)
@@ -153,11 +157,11 @@ function doCountdown(path: string) {
           </div>
           <div class="param-row">
             <div class="param-group">
-              <label>数量</label>
+              <label>数量（{{ countMin }}-{{ countMax }}）</label>
               <div class="stepper">
-                <button @click="count = Math.max(mode === 'word' ? 5 : 5, count - 5)">-</button>
-                <span class="stepper-val">{{ count }}</span>
-                <button @click="count = Math.min(mode === 'word' ? 50 : 100, count + 5)">+</button>
+                <button @click="count = Math.max(countMin, count - 5)">-</button>
+                <input v-model.number="count" class="stepper-input" @blur="clampCount" />
+                <button @click="count = Math.min(countMax, count + 5)">+</button>
               </div>
             </div>
             <div class="param-group">
@@ -248,6 +252,9 @@ function doCountdown(path: string) {
 .stepper button{width:38px;height:38px;border:none;background:#fff;font-size:18px;cursor:pointer;color:#2d2422;display:flex;align-items:center;justify-content:center}
 .stepper button:hover{background:#fef3ee}
 .stepper-val{width:48px;text-align:center;font-size:16px;font-weight:700;color:#2d2422}
+.stepper-input{width:52px;border:none;text-align:center;font-size:16px;font-weight:700;color:#2d2422;background:0 0;outline:0;padding:0;-moz-appearance:textfield}
+.stepper-input::-webkit-outer-spin-button,.stepper-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
+.stepper-input:focus{color:#e8734a}
 .stars{display:flex;align-items:center;gap:2px}.star{background:0 0;border:none;cursor:pointer;color:#e8a44a;padding:0;display:flex}.star:hover{transform:scale(1.1)}
 .diff-label{font-size:13px;color:#b8a097;margin-left:8px}
 .gen-btn{width:100%;padding:14px;background:#e8734a;color:#fff;border:none;border-radius:12px;font-size:16px;font-weight:700;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:all .15s;box-shadow:0 4px 12px rgba(232,115,74,.2)}
