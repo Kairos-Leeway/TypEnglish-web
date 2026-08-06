@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick, watch, computed } from 'vue'
-import { useRoute } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import { speak } from '../composables/useTts'
 import { playChime, playKeytap } from '../composables/useChime'
@@ -10,6 +10,7 @@ const { level, progress, gain: gainXp } = useXp()
 const { lookup } = useWordLookup()
 
 const route = useRoute()
+const router = useRouter()
 const words = ref<any[]>([])
 const currentIndex = ref(0)
 const userInput = ref('')
@@ -108,6 +109,16 @@ async function startSession(wrongWords?: any[]){
     if (wrongWords && wrongWords.length > 0) {
       words.value = wrongWords
     } else {
+      // 检查是否是 review 模式（localStorage 传词）
+      if (route.query.review === 'word') {
+        const stored = localStorage.getItem('reviewWords')
+        if (stored) {
+          words.value = JSON.parse(stored)
+          localStorage.removeItem('reviewWords')
+          await nextTick(); inputRef.value?.focus()
+          return
+        }
+      }
       const{data}=await api.post('/practice/session',{language:'en',mode:'typing',count:10,category:selectedCategory.value||undefined})
       words.value=data.words
     }
@@ -173,7 +184,7 @@ function skipToNext(){
   if (currentIndex.value >= words.value.length - 1) { finished.value = true; return }
   nextWord()
 }
-function endSession(){ finished.value = true }
+function endSession(){ router.push('/') }
 
 const deleteConfirmVisible = ref(false)
 const deleteTargetWord = ref('')
@@ -217,7 +228,6 @@ onMounted(()=>{if(route.query.category)selectedCategory.value=route.query.catego
       <span class="page-title">TypEnglish · 拼写练习</span>
       <div style="flex:1"/>
       <div class="xp-bar"><span class="xp-label">Lv.{{ level }}</span><el-progress :percentage="progress" :show-text="false" :stroke-width="4" style="width:72px" color="#10b981"/></div>
-      <router-link to="/" class="back-link">退出</router-link>
     </header>
 
     <div v-if="loading" class="center-state"><div class="loader"/><p>准备题目中...</p></div>
@@ -232,8 +242,9 @@ onMounted(()=>{if(route.query.category)selectedCategory.value=route.query.catego
         <span v-for="(r,i) in results" :key="i" :class="['rw-chip', r.correct ? 'rw-ok' : 'rw-err']">{{ r.word.word }}</span>
       </div>
       <div class="result-actions">
-        <button class="retry-btn" @click="startSession()">再来一轮</button>
-        <button v-if="results.filter(r=>!r.correct).length>0" class="retry-wrong-btn" @click="retryWrong">只复习错题</button>
+        <router-link to="/" class="retry-btn" style="display:inline-block;text-decoration:none">返回首页</router-link>
+        <button class="retry-btn secondary" @click="startSession()">再来一轮</button>
+        <button v-if="results.filter(r=>!r.correct).length>0" class="retry-btn outline" @click="retryWrong()">复习错题 ({{results.filter(r=>!r.correct).length}})</button>
       </div>
     </div>
 
@@ -245,9 +256,9 @@ onMounted(()=>{if(route.query.category)selectedCategory.value=route.query.catego
             <span class="counter">{{currentIndex+1}}/{{words.length}}</span>
             <div class="progress-actions">
               <button class="mini-btn" @click="toggleHint" :disabled="showHint || showAnswer" title="显示提示 (Ctrl+I)">提示</button>
-              <button class="mini-btn" @click="endSession">结束</button>
-              <button class="mini-btn" @click="skipToNext" title="跳过 (Ctrl+S)">跳过</button>
+              <button class="mini-btn btn-skip" @click="skipToNext" title="跳过 (Ctrl+S)">跳过</button>
               <button v-if="words[currentIndex]" class="mini-btn del-btn" @click="confirmDeleteWord">✕ 删除</button>
+              <button class="mini-btn btn-end" @click="finished=true">结束</button>
             </div>
           </div>
         </div>
@@ -293,7 +304,7 @@ onMounted(()=>{if(route.query.category)selectedCategory.value=route.query.catego
             <span class="si-item"><kbd>Ctrl+H</kbd><span>朗读</span></span>
             <span class="si-item"><kbd>Ctrl+I</kbd><span>提示</span></span>
             <span class="si-item"><kbd>Ctrl+S</kbd><span>跳过</span></span>
-            <span class="si-item"><kbd>Esc</kbd><span>结束</span></span>
+            <span class="si-item"><kbd>Esc</kbd><span>返回</span></span>
           </div>
         </div>
       </div>
@@ -315,7 +326,7 @@ onMounted(()=>{if(route.query.category)selectedCategory.value=route.query.catego
 .logo-link{text-decoration:none}
 .logo-icon{width:34px;height:34px;background:#e8734a;color:#fff;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700}
 .page-title{font-size:17px;font-weight:600;color:#2d2422;margin-left:10px}
-.back-link{font-size:16px;color:#b8a097;text-decoration:none;margin-left:16px;transition:color .15s}.back-link:hover{color:#4a3d39}
+.end-btn-red{padding:7px 20px;background:#c94a4a;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:all .15s;margin-left:16px}.end-btn-red:hover{background:#a83a3a;transform:translateY(-1px)}
 .xp-bar{display:flex;align-items:center;gap:6px;margin-right:2px}.xp-label{font-size:14px;font-weight:600;color:#e8734a;white-space:nowrap}
 
 /* ====== 加载 / 状态 ====== */
@@ -332,11 +343,13 @@ onMounted(()=>{if(route.query.category)selectedCategory.value=route.query.catego
 .result-words{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;max-width:560px}
 .rw-chip{padding:8px 18px;border-radius:10px;font-size:17px;font-weight:500}
 .rw-ok{background:#f3f9f3;color:#5b9a5e}.rw-err{background:#fdf0f0;color:#c94a4a}
-.result-actions{display:flex;gap:10px;margin-top:8px}
+.result-actions{display:flex;gap:10px;margin-top:8px;flex-wrap:wrap;justify-content:center}
 .retry-btn{padding:16px 56px;background:#e8734a;color:#fff;border:none;border-radius:12px;font-size:18px;font-weight:600;cursor:pointer;transition:all .15s}
 .retry-btn:hover{background:#d4653a;transform:translateY(-1px)}
-.retry-wrong-btn{padding:16px 40px;background:#fff;color:#4a3d39;border:1.5px solid rgba(184,160,151,.18);border-radius:12px;font-size:18px;font-weight:600;cursor:pointer;transition:all .15s}
-.retry-wrong-btn:hover{border-color:rgba(184,160,151,.25);background:#fef9f4}
+.retry-btn.secondary{padding:13px 36px;background:#5b9a5e;font-size:16px}
+.retry-btn.secondary:hover{background:#4a8a4e}
+.retry-btn.outline{padding:13px 36px;background:#fff;color:#c9782d;border:2px solid rgba(232,164,74,.35);font-size:16px}
+.retry-btn.outline:hover{background:#fef9f0;border-color:#e8734a;transform:translateY(-1px)}
 
 /* ====== 主体内容区 ====== */
 .main-content{flex:1;display:flex;flex-direction:column;overflow-y:auto;padding:0 24px}
@@ -353,6 +366,12 @@ onMounted(()=>{if(route.query.category)selectedCategory.value=route.query.catego
 .mini-btn:hover{background:rgba(184,160,151,.06);color:#4a3d39;border-color:rgba(184,160,151,.35)}
 .mini-btn:disabled{opacity:.4;cursor:not-allowed}
 .mini-btn.del-btn:hover{color:#c94a4a;border-color:rgba(201,74,74,.3);background:#fdf0f0}
+
+/* 操作按钮: 跳过=绿色, 结束=红色 */
+.btn-skip{margin-left:4px;color:#10b981;border-color:rgba(16,185,129,.25)}.btn-skip:hover{background:rgba(16,185,129,.07);color:#059669;border-color:rgba(16,185,129,.4)}
+.btn-end{margin-left:8px;padding:5px 16px;background:linear-gradient(135deg,#c94a4a,#b33a3a);color:#fff;border:none;border-radius:8px;font-weight:600;box-shadow:0 2px 6px rgba(201,74,74,.25);transition:all .2s ease}
+.btn-end:hover{background:linear-gradient(135deg,#b33a3a,#a02828);transform:translateY(-1px);box-shadow:0 4px 12px rgba(201,74,74,.35)}
+.btn-end:active{transform:translateY(0) scale(.96);transition:transform .08s ease}
 
 /* —— 中间：题目 + 输入 —— */
 .mid-zone{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;padding:8px 0;gap:0}

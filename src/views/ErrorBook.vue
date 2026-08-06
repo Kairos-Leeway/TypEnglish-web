@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed, nextTick } from 'vue'
+import { ref, onMounted, computed } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
 import { speak } from '../composables/useTts'
@@ -13,7 +13,6 @@ const errorBook = useErrorBookStore()
 const wordErrors = ref<any[]>([])
 const wordTotal = ref(0)
 const wordPage = ref(1)
-const pageSize = 30
 
 const sentenceErrors = ref<any[]>([])
 const sentTotal = ref(0)
@@ -21,15 +20,7 @@ const sentPage = ref(1)
 
 const activeTab = ref<'word' | 'sentence'>('word')
 const loading = ref(false)
-
-// --- 单词批量练习 ---
-const practicing = ref(false)
-const practiceWords = ref<any[]>([])
-const currentWordIdx = ref(0)
-const wordInput = ref('')
-const mustRetype = ref(false)
-const wordFeedback = ref('')
-const inputRef = ref<HTMLInputElement>()
+const pageSize = 30
 
 // ====== 加载 ======
 async function loadWordErrors() {
@@ -64,14 +55,16 @@ function switchTab(tab: 'word' | 'sentence') {
 const totalWordPages = computed(() => Math.ceil(wordTotal.value / pageSize))
 const totalSentPages = computed(() => Math.ceil(sentTotal.value / pageSize))
 
-// ====== 单词批量练习(随机10个) ======
+// ====== 单词批量练习 → 路由到拼写练习页面 ======
 function startWordPractice() {
   const shuffled = [...wordErrors.value].sort(() => Math.random() - 0.5)
-  const batch = shuffled.slice(0, Math.min(10, shuffled.length))
-  practiceWords.value = batch
-  currentWordIdx.value = 0; wordInput.value = ''; wordFeedback.value = ''
-  practicing.value = true
-  nextTick(() => inputRef.value?.focus())
+  console.log('[ErrorBook] wordErrors:', wordErrors.value.length, 'items')
+  const batchSize = Math.min(30, Math.max(10, shuffled.length))
+  const batch = shuffled.slice(0, batchSize)
+  // 提取 word 对象（拼写练习页面需要的格式：{id, word, translation, phonetic}）
+  const wordItems = batch.map(e => e.word)
+  localStorage.setItem('reviewWords', JSON.stringify(wordItems))
+  router.push('/practice/review?review=word')
 }
 
 function startSentenceBatchPractice() {
@@ -88,55 +81,7 @@ function startSentenceRepractice(se: any) {
   router.push('/practice/review?review=sentence')
 }
 
-async function submitWord() {
-  const cur = practiceWords.value[currentWordIdx.value]
-  const input = wordInput.value.trim()
-  if (!input) return
 
-  if (mustRetype.value) {
-    if (input.toLowerCase() === cur.word.word.toLowerCase()) {
-      mustRetype.value = false; wordFeedback.value = ''
-      nextWord(); return
-    } else {
-      wordFeedback.value = '不对, 请照着上面正确的单词输入!'
-      wordInput.value = ''
-      nextTick(() => inputRef.value?.focus())
-      return
-    }
-  }
-
-  const ok = input.toLowerCase() === cur.word.word.toLowerCase()
-  if (ok) {
-    wordFeedback.value = '正确!'
-    await api.post('/practice/submit', { wordId: cur.word.id, mode: 'typing', correct: true, answer: input }).catch(() => {})
-    await api.delete(`/errorbook/${cur.id}`).catch(() => {})
-    wordErrors.value = wordErrors.value.filter(e => e.id !== cur.id); wordTotal.value--
-    errorBook.decrement()
-    nextWord(); return
-  }
-  wordFeedback.value = `错误! 正确答案: ${cur.word.word}`
-  mustRetype.value = true
-  await api.post('/practice/submit', { wordId: cur.word.id, mode: 'typing', correct: false, answer: input }).catch(() => {})
-  wordInput.value = ''
-  nextTick(() => inputRef.value?.focus())
-}
-
-function skipWord() {
-  const cur = practiceWords.value[currentWordIdx.value]
-  api.post('/practice/submit', { wordId: cur.word.id, mode: 'typing', correct: false, answer: '(跳过)' }).catch(() => {})
-  nextWord()
-}
-
-function nextWord() {
-  if (currentWordIdx.value < practiceWords.value.length - 1) {
-    currentWordIdx.value++; wordInput.value = ''; wordFeedback.value = ''; mustRetype.value = false
-    nextTick(() => inputRef.value?.focus())
-  } else { practicing.value = false }
-}
-
-function endWordPractice() {
-  practicing.value = false
-}
 
 async function clearAllWords() {
   if (!confirm('确定清空所有单词错题吗?')) return
@@ -198,12 +143,12 @@ onMounted(async () => {
       </div>
 
       <!-- ========= 单词错题列表 ========= -->
-      <template v-if="activeTab==='word' && wordErrors.length>0 && !practicing">
+      <template v-if="activeTab==='word' && wordErrors.length>0">
         <div class="list-toolbar">
           <span class="list-info">第 {{wordPage}} 页 · 共 {{wordTotal}} 词</span>
           <div style="display:flex;gap:10px">
             <button class="action-btn danger" @click="clearAllWords">全部清空</button>
-            <button class="action-btn primary" @click="startWordPractice">批量练习 ({{Math.min(30,wordErrors.length)}}个)</button>
+            <button class="action-btn primary" @click="startWordPractice">拼写练习 ({{Math.min(30,wordErrors.length)}}个)</button>
           </div>
         </div>
         <div class="word-grid">
@@ -230,12 +175,6 @@ onMounted(async () => {
         </div>
       </template>
 
-      <!-- 单词练习中 -->
-      <div v-if="practicing" class="practice-card">
-        <div class="card-top"><div class="progress-bar"><div class="progress-fill" :style="{width:(currentWordIdx/practiceWords.length*100)+'%'}"/></div><div class="card-top-row"><span class="counter">{{currentWordIdx+1}}/{{practiceWords.length}}</span><div class="top-actions"><button class="end-btn" @click="endWordPractice">结束</button><button class="text-btn" @click="skipWord">跳过</button></div></div></div>
-        <div class="card-body"><p class="prompt-label">输入该释义对应的单词</p><h1 class="prompt-word">{{practiceWords[currentWordIdx]?.word.translation}}</h1><p v-if="practiceWords[currentWordIdx]?.word.phonetic" class="phonetic-text">{{practiceWords[currentWordIdx].word.phonetic}}</p></div>
-        <div class="input-area"><div class="input-row"><button class="speak-btn" @click="speak(practiceWords[currentWordIdx]?.word.word)"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg></button><input ref="inputRef" v-model="wordInput" class="answer-input" placeholder="输入英文单词..." autocomplete="off" spellcheck="false" @keyup.enter="submitWord()"/></div><div class="action-row"><button class="submit-btn" :disabled="!wordInput.trim()" @click="submitWord">{{mustRetype?'输入正确单词后继续':'确认'}}</button></div><p v-if="wordFeedback" :class="['fb',{wrong:wordFeedback.startsWith('错误')||wordFeedback.startsWith('不对')}]">{{wordFeedback}}</p></div>
-      </div>
 
       <!-- ========= 句子错题列表 ========= -->
       <template v-if="activeTab==='sentence' && sentenceErrors.length>0">

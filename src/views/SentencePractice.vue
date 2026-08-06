@@ -231,7 +231,6 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
       <span class="page-title">{{ isReview ? 'TypEnglish · 错题复习' : 'TypEnglish · 句子翻译' }}</span>
       <div style="flex:1"/>
       <div class="xp-bar"><span class="xp-label">Lv.{{ level }}</span><el-progress :percentage="progress" :show-text="false" :stroke-width="4" style="width:72px" color="#10b981"/></div>
-      <router-link :to="isReview ? '/errorbook' : '/'" class="back-link">{{ isReview ? '返回错题本' : '退出' }}</router-link>
     </header>
 
     <div v-if="loading" class="center-state"><div class="loader"/><p>加载句子中...</p></div>
@@ -240,8 +239,11 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
       <div class="result-icon-wrap"><svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg></div>
       <h2>{{ isReview ? '复习完成' : '练习完成' }}</h2>
       <p class="result-meta">{{ sentences.length }} 个句子</p>
-      <router-link v-if="isReview" to="/errorbook" class="retry-btn" style="display:inline-block;text-decoration:none;margin-top:12px">返回错题本</router-link>
-      <button v-else class="retry-btn" @click="currentIndex=0;finished=false;loadSentences()">再来一轮</button>
+      <div class="result-actions">
+        <router-link v-if="isReview" to="/errorbook" class="retry-btn" style="display:inline-block;text-decoration:none">返回错题本</router-link>
+        <router-link v-else to="/" class="retry-btn" style="display:inline-block;text-decoration:none">返回首页</router-link>
+        <button v-if="!isReview" class="retry-btn secondary" @click="loadSentences()">再来一轮</button>
+      </div>
     </div>
 
     <template v-else-if="sentences.length>0">
@@ -251,14 +253,14 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
           <div class="card-top-row">
             <span class="counter">{{currentIndex+1}}/{{sentences.length}}</span>
             <div class="top-actions">
-              <button class="mini-btn" @click="finished=true">结束</button>
-              <button class="mini-btn" @click="skipSentence">跳过</button>
+              <button class="mini-btn btn-skip" @click="skipSentence">跳过</button>
               <button class="action-btn" @click="speak(sentences[currentIndex].english)">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg> 朗读
               </button>
               <button class="action-btn" @click="showHint">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/></svg> 提示
               </button>
+              <button class="mini-btn btn-end" @click="finished=true">结束</button>
             </div>
           </div>
         </div>
@@ -287,7 +289,7 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
             <span class="si-item"><kbd>Ctrl+H</kbd><span>朗读</span></span>
             <span class="si-item"><kbd>Ctrl+I</kbd><span>提示</span></span>
             <span class="si-item"><kbd>Ctrl+S</kbd><span>跳过</span></span>
-            <span class="si-item"><kbd>Esc</kbd><span>结束</span></span>
+            <span class="si-item"><kbd>Esc</kbd><span>返回</span></span>
           </div>
         </div>
       </div>
@@ -302,7 +304,7 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
 .logo-link{text-decoration:none}
 .logo-icon{width:34px;height:34px;background:#e8734a;color:#fff;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700}
 .page-title{font-size:17px;font-weight:600;color:#2d2422;margin-left:10px}
-.back-link{font-size:16px;color:#b8a097;text-decoration:none;margin-left:16px;transition:color .15s}.back-link:hover{color:#4a3d39}
+.end-btn-red{padding:7px 20px;background:#c94a4a;color:#fff;border:none;border-radius:8px;font-size:14px;font-weight:600;cursor:pointer;transition:all .15s;margin-left:16px}.end-btn-red:hover{background:#a83a3a;transform:translateY(-1px)}
 .xp-bar{display:flex;align-items:center;gap:6px;margin-right:2px}.xp-label{font-size:14px;font-weight:600;color:#e8734a;white-space:nowrap}
 
 .center-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#b8a097;gap:16px}
@@ -314,6 +316,17 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
 .result-panel h2{font-size:26px;font-weight:700;color:#2d2422;margin:0}.result-meta{font-size:17px;color:#b8a097;margin:0}
 .retry-btn{margin-top:8px;padding:13px 44px;background:#e8734a;color:#fff;border:none;border-radius:12px;font-size:18px;font-weight:600;cursor:pointer;transition:all .15s}
 .retry-btn:hover{background:#d4653a;transform:translateY(-1px)}
+.result-actions{display:flex;gap:10px;margin-top:12px;flex-wrap:wrap;justify-content:center}
+.retry-btn.secondary{padding:13px 36px;background:#5b9a5e;font-size:16px}
+.retry-btn.secondary:hover{background:#4a8a4e}
+.retry-btn.outline{padding:13px 36px;background:#fff;color:#c9782d;border:2px solid rgba(232,164,74,.35);font-size:16px}
+.retry-btn.outline:hover{background:#fef9f0;border-color:#e8734a;transform:translateY(-1px)}
+
+/* 操作按钮: 跳过=绿色, 结束=红色 */
+.btn-skip{color:#10b981;border-color:rgba(16,185,129,.25)}.btn-skip:hover{background:rgba(16,185,129,.07);color:#059669;border-color:rgba(16,185,129,.4)}
+.btn-end{padding:5px 16px;background:linear-gradient(135deg,#c94a4a,#b33a3a);color:#fff;border:none;border-radius:8px;font-weight:600;box-shadow:0 2px 6px rgba(201,74,74,.25);transition:all .2s ease}
+.btn-end:hover{background:linear-gradient(135deg,#b33a3a,#a02828);transform:translateY(-1px);box-shadow:0 4px 12px rgba(201,74,74,.35)}
+.btn-end:active{transform:translateY(0) scale(.96);transition:transform .08s ease}
 
 .sentence-card{flex:1;display:flex;flex-direction:column;overflow-y:auto;padding:0 24px}
 
