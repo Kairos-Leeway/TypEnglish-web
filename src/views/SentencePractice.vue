@@ -178,6 +178,12 @@ function hintLabel(slot: WordSlot): string {
 function skipSentence() {
   if (isReview.value) submitBatchResults()
   submitSentenceError()
+  // 只剩最后一题时跳过，标记为完成并提示"练习结束"而非"练习完成"
+  if (currentIndex.value >= sentences.value.length - 1) {
+    finished.value = true
+    if (isReview.value) localStorage.removeItem('reviewSentences')
+    return
+  }
   nextSentence()
 }
 

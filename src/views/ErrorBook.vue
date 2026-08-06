@@ -3,14 +3,17 @@ import { ref, onMounted, computed, nextTick } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
 import { speak } from '../composables/useTts'
+import { useErrorBookStore } from '../stores/errorBook'
+import GlobalTopbar from '../components/GlobalTopbar.vue'
 
 const router = useRouter()
+const errorBook = useErrorBookStore()
 
 // --- 数据 ---
 const wordErrors = ref<any[]>([])
 const wordTotal = ref(0)
 const wordPage = ref(1)
-const pageSize = 10
+const pageSize = 30
 
 const sentenceErrors = ref<any[]>([])
 const sentTotal = ref(0)
@@ -108,6 +111,7 @@ async function submitWord() {
     await api.post('/practice/submit', { wordId: cur.word.id, mode: 'typing', correct: true, answer: input }).catch(() => {})
     await api.delete(`/errorbook/${cur.id}`).catch(() => {})
     wordErrors.value = wordErrors.value.filter(e => e.id !== cur.id); wordTotal.value--
+    errorBook.decrement()
     nextWord(); return
   }
   wordFeedback.value = `错误! 正确答案: ${cur.word.word}`
@@ -138,28 +142,26 @@ async function clearAllWords() {
   if (!confirm('确定清空所有单词错题吗?')) return
   await api.delete('/errorbook/clear-all').catch(() => {})
   wordErrors.value = []; wordTotal.value = 0
+  errorBook.setErrorCount(0)
 }
 
 async function clearAllSentences() {
   if (!confirm('确定清空所有句子错题吗?')) return
   await api.delete('/errorbook/sentences/clear-all').catch(() => {})
   sentenceErrors.value = []; sentTotal.value = 0
+  errorBook.setErrorCount(0)
 }
 
 onMounted(async () => {
   await Promise.all([loadWordErrors(), loadSentenceErrors()])
+  // 确保 store 也同步最新数据
+  errorBook.setErrorCount(wordTotal.value + sentTotal.value)
 })
 </script>
 
 <template>
   <div class="errorbook">
-    <header class="topbar">
-      <router-link to="/" class="logo-link"><span class="logo-icon">T</span></router-link>
-      <span class="page-title">TypEnglish · 错题本</span>
-      <span v-if="wordTotal+sentTotal" class="count-tag">{{wordTotal+sentTotal}} 待复习</span>
-      <div style="flex:1"/>
-      <router-link to="/" class="back-link">退出</router-link>
-    </header>
+    <GlobalTopbar />
 
     <main class="main-area">
       <!-- 空状态 -->
@@ -201,7 +203,7 @@ onMounted(async () => {
           <span class="list-info">第 {{wordPage}} 页 · 共 {{wordTotal}} 词</span>
           <div style="display:flex;gap:10px">
             <button class="action-btn danger" @click="clearAllWords">全部清空</button>
-            <button class="action-btn primary" @click="startWordPractice">批量练习 ({{Math.min(10,wordErrors.length)}}个)</button>
+            <button class="action-btn primary" @click="startWordPractice">批量练习 ({{Math.min(30,wordErrors.length)}}个)</button>
           </div>
         </div>
         <div class="word-grid">
@@ -275,7 +277,6 @@ onMounted(async () => {
 
 <style scoped>
 .errorbook{min-height:100vh;background:#fef9f4}
-.topbar{display:flex;align-items:center;height:56px;padding:0 24px;background:rgba(255,255,255,.78);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:1px solid rgba(184,160,151,.15)}
 .topbar-inner{display:flex;align-items:center;width:100%}
 .logo-link{text-decoration:none}
 .logo-icon{width:30px;height:30px;background:#e8734a;color:#fff;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700}

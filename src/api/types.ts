@@ -93,3 +93,22 @@ export interface WordLookup {
   partOfSpeech?: string
   example?: string
 }
+
+/** AI 对话 */
+export interface Conversation {
+  id: number
+  userId: number
+  title: string
+  createTime: string
+  updateTime: string
+}
+
+/** AI 对话消息 */
+export interface ConversationMessage {
+  id: number
+  conversationId: number
+  userId: number
+  role: 'user' | 'assistant'
+  content: string
+  createTime: string
+}

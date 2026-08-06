@@ -2,12 +2,14 @@
 import { ref, onMounted } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthStore } from '../stores/auth'
+import { useErrorBookStore } from '../stores/errorBook'
+import GlobalTopbar from '../components/GlobalTopbar.vue'
 import api from '../api'
 
 const router = useRouter()
 const auth = useAuthStore()
+const errorBook = useErrorBookStore()
 const stats = ref({ total: 0, correct: 0, accuracy: 0 })
-const errorCount = ref(0)
 const chapters = ref<Array<{category: string, wordCount: number}>>([])
 const deleteCatVisible = ref(false)
 const deleteCatName = ref('')
@@ -25,37 +27,20 @@ async function doDeleteCategory() {
 
 onMounted(async () => {
   try {
-    const [s, e, se] = await Promise.all([
-      api.get('/practice/stats'),
-      api.get('/errorbook?size=1'),
-      api.get('/errorbook/sentences?size=1')
-    ])
-    stats.value = s.data
-    const wordErrCount = (e.data.total > 0) ? e.data.total : (e.data.items ? e.data.items.length : 0)
-    const sentErrCount = (se.data.total > 0) ? se.data.total : (se.data.items ? se.data.items.length : 0)
-    errorCount.value = wordErrCount + sentErrCount
+    const statsRes = await api.get('/practice/stats')
+    stats.value = statsRes.data
   } catch {}
+  errorBook.fetchErrorCount()
   api.get('/categories').then(({ data }) => chapters.value = data).catch(() => {})
 })
-
-function logout() { auth.logout(); router.push('/login') }
 </script>
 
 <template>
   <div class="home">
-    <header class="topbar">
-      <div class="logo"><span class="logo-icon">T</span><span class="logo-text">TypEnglish</span></div>
-      <nav class="topbar-nav">
-        <router-link to="/" class="nav-link active">首页</router-link>
-        <router-link to="/errorbook" class="nav-link">错题本<strong v-if="errorCount" class="nav-badge">{{errorCount}}</strong></router-link>
-        <router-link to="/ai-generate" class="nav-link">AI出题</router-link>
-        <router-link to="/ai-chat" class="nav-link">AI助教</router-link>
-      </nav>
-      <div class="topbar-right"><span class="user-name">{{auth.user?.username}}</span><button class="logout-btn" @click="logout">退出</button></div>
-    </header>
+    <GlobalTopbar />
     <main class="main-content">
       <div class="greeting"><h1>Hi, {{auth.user?.username}}</h1><p>今天想练习什么?</p></div>
-      <div class="stats-row"><div class="stat-card"><span class="stat-value">{{stats.total}}</span><span class="stat-label">总练习</span></div><div class="stat-card accent"><span class="stat-value">{{stats.accuracy}}%</span><span class="stat-label">正确率</span></div><div class="stat-card warn"><span class="stat-value">{{errorCount}}</span><span class="stat-label">待复习</span></div></div>
+      <div class="stats-row"><div class="stat-card"><span class="stat-value">{{stats.total}}</span><span class="stat-label">总练习</span></div><div class="stat-card accent"><span class="stat-value">{{stats.accuracy}}%</span><span class="stat-label">正确率</span></div><div class="stat-card warn"><span class="stat-value">{{errorBook.errorCount}}</span><span class="stat-label">待复习</span></div></div>
       <h2 class="section-title">词库章节</h2>
       <div class="chapter-grid"><div v-for="ch in chapters" :key="ch.category" class="chapter-card" @click="$router.push({ path: '/practice', query: { category: ch.category }})"><div class="ch-icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg></div><div class="ch-info"><span class="ch-name">{{ch.category}}</span><span class="ch-count">{{ch.wordCount}}词</span></div><span class="ch-arrow">→</span><button class="ch-delete" title="删除整个题库" @click.stop="confirmDeleteCategory(ch.category)"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg></button></div></div>
       <h2 class="section-title">练习模式</h2>
@@ -75,21 +60,6 @@ function logout() { auth.logout(); router.push('/login') }
 
 <style scoped>
 .home{min-height:100vh;background:#fef9f4}
-.topbar{display:flex;align-items:center;height:56px;padding:0 24px;background:rgba(255,255,255,.78);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border-bottom:1px solid rgba(184,160,151,.15)}
-.topbar-inner{display:flex;align-items:center;width:100%}
-.logo{display:flex;align-items:center;gap:10px;margin-right:36px}
-.logo-icon{width:30px;height:30px;background:#e8734a;color:#fff;border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:13px;font-weight:700}
-.logo-text{font-size:16px;font-weight:600;color:#2d2422}
-.topbar-nav{display:flex;gap:2px;flex:1}
-.nav-link{padding:8px 16px;border-radius:8px;font-size:14px;font-weight:500;color:#b8a097;text-decoration:none;transition:all .15s;position:relative}
-.nav-link:hover{color:#2d2422;background:rgba(255,255,255,.6)}
-.nav-link.active{color:#2d2422;background:rgba(255,255,255,.6)}
-.nav-badge{position:absolute;top:-4px;right:-6px;background:#c94a4a;color:#fff;font-size:11px;font-weight:800;min-width:20px;height:20px;border-radius:10px;display:inline-flex;align-items:center;justify-content:center;padding:0 5px;box-shadow:0 2px 4px rgba(201,74,74,.3);animation:pulse-badge 2s ease-in-out infinite}
-@keyframes pulse-badge{0%,100%{transform:scale(1)}50%{transform:scale(1.1)}}
-.topbar-right{display:flex;align-items:center;gap:16px}
-.user-name{font-size:14px;color:#2d2422}
-.logout-btn{padding:6px 14px;border:1px solid rgba(184,160,151,.18);border-radius:8px;background:rgba(255,255,255,.5);color:#b8a097;font-size:13px;cursor:pointer;transition:all .15s}
-.logout-btn:hover{border-color:#c94a4a;color:#c94a4a}
 .main-content{max-width:1200px;margin:0 auto;padding:48px 48px 80px}
 .greeting{margin-bottom:32px}.greeting h1{font-size:32px;font-weight:700;color:#2d2422;margin:0 0 6px}.greeting p{font-size:16px;color:#b8a097;margin:0}
 .stats-row{display:grid;grid-template-columns:repeat(3,1fr);gap:16px;margin-bottom:40px}

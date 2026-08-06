@@ -1,0 +1,109 @@
+/* 全局顶部导航样式 — 各页面通过 class 引用即可 */
+
+.topbar-global {
+  display: flex;
+  align-items: center;
+  height: 56px;
+  padding: 0 24px;
+  background: rgba(255, 255, 255, .78);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid rgba(184, 160, 151, .15);
+}
+
+.topbar-global .logo {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-right: 36px;
+}
+
+.topbar-global .logo-icon {
+  width: 30px;
+  height: 30px;
+  background: #e8734a;
+  color: #fff;
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.topbar-global .logo-text {
+  font-size: 16px;
+  font-weight: 600;
+  color: #2d2422;
+}
+
+.topbar-global .topbar-nav {
+  display: flex;
+  gap: 2px;
+  flex: 1;
+}
+
+.topbar-global .nav-link {
+  padding: 8px 20px;
+  border-radius: 8px;
+  font-size: 14px;
+  font-weight: 500;
+  color: #b8a097;
+  text-decoration: none;
+  transition: all .15s;
+  position: relative;
+  margin: 0 2px;
+}
+
+.topbar-global .nav-link:hover {
+  color: #2d2422;
+  background: rgba(255, 255, 255, .6);
+}
+
+.topbar-global .nav-link.active {
+  color: #2d2422;
+  background: rgba(255, 255, 255, .6);
+}
+
+.topbar-global .nav-badge {
+  position: absolute;
+  top: -4px;
+  right: -6px;
+  background: #c94a4a;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 800;
+  min-width: 20px;
+  height: 20px;
+  border-radius: 10px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0 5px;
+  box-shadow: 0 2px 4px rgba(201, 74, 74, .3);
+  animation: pulse-badge 2s ease-in-out infinite;
+}
+
+@keyframes pulse-badge {
+  0%, 100% { transform: scale(1); }
+  50%      { transform: scale(1.1); }
+}
+
+.topbar-global .topbar-right {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.topbar-global .back-link {
+  font-size: 14px;
+  color: #b8a097;
+  text-decoration: none;
+  transition: color .15s;
+  font-weight: 500;
+  margin-left: 20px;
+}
+
+.topbar-global .back-link:hover {
+  color: #e8734a;
+}

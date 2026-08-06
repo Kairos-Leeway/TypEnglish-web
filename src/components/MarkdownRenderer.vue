@@ -32,7 +32,10 @@ marked.setOptions({
 
 const html = computed(() => {
   try {
-    const raw = props.content || ''
+    let raw = props.content || ''
+    // 修复 AI 输出的 markdown 标题缺少空格的问题：
+    // ###🐦 类型三 → ### 🐦 类型三
+    raw = raw.replace(/^(#{1,6})(\S)/gm, '$1 $2')
     return marked.parse(raw) as string
   } catch {
     return props.content || ''
@@ -91,8 +94,8 @@ const html = computed(() => {
 .markdown-body blockquote {
   margin: 0.5em 0;
   padding: 0.25em 1em;
-  border-left: 4px solid var(--el-border-color);
-  color: var(--el-text-color-secondary);
+  border-left: 4px solid #ddd;
+  color: #666;
 }
 
 .markdown-body code {
@@ -100,8 +103,8 @@ const html = computed(() => {
   font-size: 0.9em;
   padding: 2px 6px;
   border-radius: 4px;
-  background: var(--el-fill-color-light);
-  color: var(--el-text-color-primary);
+  background: #f1f1f1;
+  color: #333;
 }
 
 .markdown-body pre {
@@ -131,18 +134,18 @@ const html = computed(() => {
 
 .markdown-body th,
 .markdown-body td {
-  border: 1px solid var(--el-border-color-light);
+  border: 1px solid #e0e0e0;
   padding: 8px 12px;
   text-align: left;
 }
 
 .markdown-body th {
-  background: var(--el-fill-color-light);
+  background: #f5f5f5;
   font-weight: 600;
 }
 
 .markdown-body a {
-  color: var(--el-color-primary);
+  color: #e8734a;
   text-decoration: none;
 }
 
@@ -152,7 +155,7 @@ const html = computed(() => {
 
 .markdown-body hr {
   border: none;
-  border-top: 1px solid var(--el-border-color-light);
+  border-top: 1px solid #e0e0e0;
   margin: 1em 0;
 }
 

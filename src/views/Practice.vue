@@ -169,6 +169,8 @@ function skipToNext(){
   const cur=words.value[currentIndex.value]
   results.value.push({word:cur,correct:false,answer:'(跳过)',attempts:attempts.value})
   api.post('/practice/submit',{wordId:cur.id,mode:'typing',correct:false,answer:'(跳过)'}).catch(()=>{})
+  // 只剩最后一题时直接结束
+  if (currentIndex.value >= words.value.length - 1) { finished.value = true; return }
   nextWord()
 }
 function endSession(){ finished.value = true }
