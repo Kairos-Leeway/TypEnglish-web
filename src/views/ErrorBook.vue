@@ -241,6 +241,7 @@ onMounted(async () => {
               :placeholder="confirmKeyword"
               autofocus
               @keydown.enter="doClearAll()"
+              @input="clearConfirm.inputText = clearConfirm.inputText.toUpperCase()"
             />
           </div>
           <div class="modal-actions">

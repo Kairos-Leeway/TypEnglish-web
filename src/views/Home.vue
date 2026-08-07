@@ -18,6 +18,9 @@ function confirmDeleteCategory(cat: string) {
   deleteCatName.value = cat
   deleteCatVisible.value = true
 }
+function cancelDeleteCategory() {
+  deleteCatVisible.value = false
+}
 
 async function doDeleteCategory() {
   deleteCatVisible.value = false
@@ -51,10 +54,22 @@ onMounted(async () => {
       </div>
     </main>
     <!-- 删除确认弹窗 -->
-    <el-dialog v-model="deleteCatVisible" title="确认删除" width="380px" center>
-      <p style="text-align:center;margin:16px 0;color:#475569;font-size:15px">确定要删除整个题库 <strong style="color:#1e293b">「{{deleteCatName}}」</strong> 吗？<br/><span style="font-size:13px;color:#94a3b8">这将删除该题库下的所有单词</span></p>
-      <template #footer><el-button @click="deleteCatVisible=false">取消</el-button><el-button type="danger" @click="doDeleteCategory">确认删除</el-button></template>
-    </el-dialog>
+    <div v-if="deleteCatVisible" class="modal-overlay" @click.self="cancelDeleteCategory()">
+      <div class="modal-card" @click.stop>
+        <div class="modal-icon">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#c9782d" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        </div>
+        <h3 class="modal-title">删除整个题库？</h3>
+        <p class="modal-body">
+          此操作<span style="color:#c9782d;font-weight:600">不可撤销</span>，
+          将删除 <strong style="color:#2d2422">「{{ deleteCatName }}」</strong> 下的所有单词。
+        </p>
+        <div class="modal-actions" style="margin-top:8px">
+          <button class="modal-btn cancel" @click="cancelDeleteCategory()">取消</button>
+          <button class="modal-btn confirm warn" @click="doDeleteCategory()">确认删除</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -89,4 +104,21 @@ onMounted(async () => {
 .mode-card h3{font-size:16px;font-weight:700;color:#2d2422;margin:0 0 6px}
 .mode-card p{font-size:13px;color:#b8a097;margin:0;line-height:1.5}
 @media(max-width:768px){.topbar-nav{display:none}.stats-row,.mode-grid{grid-template-columns:1fr}.chapter-grid{grid-template-columns:repeat(2,1fr)}.topbar-inner,.main-content{padding-left:20px;padding-right:20px}}
+
+/* ── 删除确认弹窗 ── */
+.modal-overlay { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,.35); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; animation: fadeIn .2s ease }
+.modal-card { background: #fff; border-radius: 20px; padding: 36px 40px 28px; max-width: 380px; width: 90%; text-align: center; box-shadow: 0 16px 48px rgba(0,0,0,.12); animation: scaleIn .25s ease }
+.modal-icon { margin-bottom: 14px }
+.modal-title { font-size: 18px; font-weight: 700; color: #2d2422; margin: 0 0 8px }
+.modal-body { font-size: 14px; color: #8b7b74; line-height: 1.6; margin: 0 0 24px }
+.modal-actions { display: flex; gap: 12px; justify-content: center }
+.modal-btn { padding: 10px 32px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; font-family: inherit; transition: all .15s }
+.modal-btn.cancel { background: rgba(184,160,151,.08); color: #8b7b74 }
+.modal-btn.cancel:hover { background: rgba(184,160,151,.15); color: #2d2422 }
+.modal-btn.confirm { background: #c94a4a; color: #fff; box-shadow: 0 2px 8px rgba(201,74,74,.25) }
+.modal-btn.confirm:hover { background: #b33a3a; transform: translateY(-1px); box-shadow: 0 4px 14px rgba(201,74,74,.35) }
+.modal-btn.confirm.warn { background: #c9782d; box-shadow: 0 2px 8px rgba(201,120,45,.25) }
+.modal-btn.confirm.warn:hover { background: #b3681d; box-shadow: 0 4px 14px rgba(201,120,45,.35) }
+@keyframes fadeIn { 0%{opacity:0} 100%{opacity:1} }
+@keyframes scaleIn { 0%{opacity:0;transform:scale(.92)} 100%{opacity:1;transform:scale(1)} }
 </style>

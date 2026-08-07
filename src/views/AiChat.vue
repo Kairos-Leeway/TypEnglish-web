@@ -54,6 +54,10 @@ async function send() {
 
   // 创建空的 AI 气泡用于流式填充
   messages.value.push({ role: 'assistant', content: '' })
+  // 发消息后立即滚到底部
+  nextTick(() => {
+    if (chatRef.value) chatRef.value.scrollTop = chatRef.value.scrollHeight
+  })
   loading.value = true; streaming.value = true
 
   try {
@@ -154,6 +158,19 @@ async function send() {
     }
   } finally {
     loading.value = false; streaming.value = false; abortController = null
+    // 流结束后从接口重新拉取最后一条 AI 消息的正确内容，修正 token 拼接丢失空格的问题
+    const last = messages.value[messages.value.length - 1]
+    if (last && last.role === 'assistant' && conversationId.value) {
+      try {
+        const { data } = await api.get(`/ai/conversation/${conversationId.value}/messages`)
+        const msgs = data as ConversationMessage[]
+        const latest = msgs.findLast(m => m.role === 'assistant')
+        if (latest) {
+          last.content = latest.content
+          messages.value = [...messages.value]
+        }
+      } catch { /* ignore */ }
+    }
     await nextTick()
     chatRef.value?.scrollTo({ top: chatRef.value.scrollHeight, behavior: 'smooth' })
   }

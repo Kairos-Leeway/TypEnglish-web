@@ -449,6 +449,9 @@ function endNow() {
 }
 
 function restart() {
+  // 清除自动倒计时，防止用户手动点"再来一轮"后定时器又触发一次
+  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
+  countdown.value = 0
   finished.value = false; completed.value = false; currentIndex.value = 0; correctCount.value = 0
   if (isSentenceMode.value) { sentences.value = []; slots.value = []; sentenceResults.value = [] }
   else { words.value = []; userInput.value = ''; results.value = []; attempts.value = 0; showHint.value = false; showAnswer.value = false; mustRetype.value = false }
@@ -757,14 +760,28 @@ const pageTitle = computed(() => {
       </div>
     </template>
 
-    <!-- Delete confirm dialog (spelling only) -->
-    <el-dialog v-model="deleteConfirmVisible" title="确认删除" width="380px" center>
-      <p style="text-align:center;margin:16px 0;color:#475569;font-size:15px">
-        <template v-if="deleteTargetType === 'word'">从题库中删除 <strong style="color:#1e293b">"{{ deleteTargetWord }}"</strong>？</template>
-        <template v-else>确定删除此题？</template>
-      </p>
-      <template #footer><el-button @click="deleteConfirmVisible = false">取消</el-button><el-button type="danger" @click="deleteTargetType === 'word' ? doDeleteWord() : doDeleteSentence()">删除</el-button></template>
-    </el-dialog>
+    <!-- Delete confirm overlay -->
+    <div v-if="deleteConfirmVisible" class="modal-overlay" @click.self="deleteConfirmVisible = false">
+      <div class="modal-card" @click.stop>
+        <div class="modal-icon">
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#c94a4a" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        </div>
+        <h3 class="modal-title">{{ deleteTargetType === 'word' ? '删除单词？' : '删除句子？' }}</h3>
+        <p class="modal-body">
+          此操作<span style="color:#c94a4a;font-weight:600">不可撤销</span>。
+          <template v-if="deleteTargetType === 'word'">
+            将从题库和错题本中删除此题。
+          </template>
+          <template v-else>
+            将删除该句子及其错题记录。
+          </template>
+        </p>
+        <div class="modal-actions" style="margin-top:8px">
+          <button class="modal-btn cancel" @click="deleteConfirmVisible = false">取消</button>
+          <button class="modal-btn confirm" @click="deleteTargetType === 'word' ? doDeleteWord() : doDeleteSentence()">确认删除</button>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -808,7 +825,7 @@ const pageTitle = computed(() => {
 .retry-btn.outline:hover { background: #fef9f0; border-color: #e8734a; transform: translateY(-1px) }
 
 /* ====== 主体内容区 ====== */
-.main-content, .card { flex: 1; display: flex; flex-direction: column; overflow-y: auto; padding: 0 24px }
+.main-content, .card { flex: 1; display: flex; flex-direction: column; overflow-y: auto; padding: 0 24px; max-width: 880px; margin: 0 auto; width: 100% }
 
 /* —— 顶部 —— */
 .top-zone { flex-shrink: 0; padding-top: 20px; max-width: 720px; width: 100%; margin: 0 auto }
@@ -896,9 +913,9 @@ const pageTitle = computed(() => {
 .fb-hint .fb-inner { background: rgba(232, 164, 74, .1); color: #c9782d; border: 1px solid rgba(232, 164, 74, .2) }
 
 /* Sentence specific */
-.chinese-area { padding: 0 0 16px; text-align: center }
-.chinese-text { font-size: 30px; font-weight: 600; color: #2d2422; line-height: 1.6; margin: 0; word-break: break-word }
-.slots-area { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: flex-start; padding: 0 0 8px }
+.chinese-area { padding: 0 0 16px; text-align: center; max-width: 700px; margin: 0 auto }
+.chinese-text { font-size: 26px; font-weight: 600; color: #2d2422; line-height: 1.7; margin: 0; word-break: break-word; overflow-wrap: break-word }
+.slots-area { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: flex-start; padding: 0 0 8px; max-width: 700px; margin: 0 auto }
 .slot-item { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px }
 .slots-line { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; line-height: 2.6; padding: 0 0 8px }
 .vis-word { font-size: 19px; color: #4a3d39; font-weight: 500; padding: 0 4px; cursor: default }
@@ -952,4 +969,19 @@ const pageTitle = computed(() => {
   .slot-input { font-size: 14px; min-width: 44px; padding: 5px 8px }
   .card-top-row { flex-wrap: wrap; gap: 6px }
 }
+
+/* ── 删除确认弹窗 ── */
+.modal-overlay { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,.35); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; animation: fadeIn .2s ease }
+.modal-card { background: #fff; border-radius: 20px; padding: 36px 40px 28px; max-width: 380px; width: 90%; text-align: center; box-shadow: 0 16px 48px rgba(0,0,0,.12); animation: scaleIn .25s ease }
+.modal-icon { margin-bottom: 14px }
+.modal-title { font-size: 18px; font-weight: 700; color: #2d2422; margin: 0 0 8px }
+.modal-body { font-size: 14px; color: #8b7b74; line-height: 1.6; margin: 0 0 24px }
+.modal-actions { display: flex; gap: 12px; justify-content: center }
+.modal-btn { padding: 10px 32px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; font-family: inherit; transition: all .15s }
+.modal-btn.cancel { background: rgba(184,160,151,.08); color: #8b7b74 }
+.modal-btn.cancel:hover { background: rgba(184,160,151,.15); color: #2d2422 }
+.modal-btn.confirm { background: #c94a4a; color: #fff; box-shadow: 0 2px 8px rgba(201,74,74,.25) }
+.modal-btn.confirm:hover { background: #b33a3a; transform: translateY(-1px); box-shadow: 0 4px 14px rgba(201,74,74,.35) }
+@keyframes fadeIn { 0%{opacity:0} 100%{opacity:1} }
+@keyframes scaleIn { 0%{opacity:0;transform:scale(.92)} 100%{opacity:1;transform:scale(1)} }
 </style>
