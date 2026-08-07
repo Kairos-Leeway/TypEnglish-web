@@ -27,7 +27,7 @@ export function useWordLookup() {
   const pending = new Map<string, Promise<WordDetail>>()
 
   async function lookup(language: string, word: string): Promise<WordDetail | null> {
-    if (!word || word.length <= 1) return null
+    if (!word || word.length < 1) return null
 
     // 清理标点
     const clean = word.replace(/^[^a-zA-Z'-]+|[^a-zA-Z'-]+$/g, '')

@@ -48,7 +48,10 @@ async function onWordHover(slot: WordSlot) {
   hoveredDetail.value = null
   hoverTimer.value = setTimeout(async () => {
     const detail = await lookup(language.value, slot.word)
-    if (hoveredIdx.value === slot.index) hoveredDetail.value = detail
+    if (hoveredIdx.value === slot.index) {
+      if (detail) hoveredDetail.value = detail
+      else { hoveredIdx.value = null; hoveredDetail.value = null }
+    }
   }, 100)
 }
 
@@ -328,7 +331,7 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
 .btn-end:hover{background:linear-gradient(135deg,#b33a3a,#a02828);transform:translateY(-1px);box-shadow:0 4px 12px rgba(201,74,74,.35)}
 .btn-end:active{transform:translateY(0) scale(.96);transition:transform .08s ease}
 
-.sentence-card{flex:1;display:flex;flex-direction:column;overflow-y:auto;padding:0 24px}
+.sentence-card{flex:1;display:flex;flex-direction:column;overflow-y:auto;padding:80px 24px 28px}
 
 /* —— 顶部 —— */
 .top-zone{flex-shrink:0;padding-top:20px;max-width:720px;width:100%;margin:0 auto}
@@ -358,8 +361,8 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
 @keyframes shakeRed{0%,100%{border-color:rgba(184,160,151,.18)}10%,50%,90%{border-color:#c94a4a;background:#fdf0f0}}
 
 .hover-word-card{position:absolute;bottom:calc(100%+10px);left:50%;transform:translateX(-50%);z-index:200;
-  background:#fff;color:#2d2422;padding:10px 14px;border-radius:12px;
-  min-width:130px;pointer-events:none;
+  background:#fff;color:#2d2422;padding:12px 18px;border-radius:12px;
+  min-width:180px;max-width:320px;
   box-shadow:0 12px 32px rgba(0,0,0,.1),0 0 0 1px rgba(0,0,0,.04);
   animation:hoverCardIn .2s ease-out;}
 .hover-word-card::after{content:'';position:absolute;top:100%;left:50%;transform:translateX(-50%);border:7px solid transparent;border-top-color:#fff}
@@ -382,7 +385,7 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
 @media(max-width:768px){
   .sentence-practice{overflow:auto}
   .topbar{padding:0 16px;height:50px}
-  .sentence-card{padding:0 16px}
+  .sentence-card{padding:40px 16px 16px}
   .chinese-text{font-size:26px}
   .slot-input{font-size:18px;padding:6px 10px}
   .top-zone{padding-top:14px;max-width:100%}

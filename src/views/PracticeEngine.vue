@@ -156,7 +156,10 @@ async function onWordHover(slot: WordSlot) {
   hoveredIdx.value = slot.index; hoveredDetail.value = null
   hoverTimer.value = setTimeout(async () => {
     const detail = await lookup(language.value, slot.word)
-    if (hoveredIdx.value === slot.index) hoveredDetail.value = detail
+    if (hoveredIdx.value === slot.index) {
+      if (detail) hoveredDetail.value = detail
+      else { hoveredIdx.value = null; hoveredDetail.value = null }
+    }
   }, 100)
 }
 function onWordLeave() {
@@ -825,7 +828,7 @@ const pageTitle = computed(() => {
 .retry-btn.outline:hover { background: #fef9f0; border-color: #e8734a; transform: translateY(-1px) }
 
 /* ====== 主体内容区 ====== */
-.main-content, .card { flex: 1; display: flex; flex-direction: column; overflow-y: auto; padding: 0 24px; max-width: 880px; margin: 0 auto; width: 100% }
+.main-content, .card { flex: 1; display: flex; flex-direction: column; overflow-y: auto; padding: 80px 28px 28px; max-width: 80%; margin: 0 auto; width: 100% }
 
 /* —— 顶部 —— */
 .top-zone { flex-shrink: 0; padding-top: 20px; max-width: 720px; width: 100%; margin: 0 auto }
@@ -931,15 +934,15 @@ const pageTitle = computed(() => {
 @keyframes shakeRed { 0%, 100% { border-color: rgba(184, 160, 151, .18) } 10%, 50%, 90% { border-color: #c94a4a; background: #fdf0f0 } }
 
 /* Hover word card */
-.hover-word-card { position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); z-index: 200; background: #fff; color: #2d2422; padding: 10px 14px; border-radius: 12px; min-width: 130px; pointer-events: none; box-shadow: 0 12px 32px rgba(0, 0, 0, .1), 0 0 0 1px rgba(0, 0, 0, .04); animation: hoverCardIn .2s ease-out }
+.hover-word-card { position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); z-index: 200; background: #fff; color: #2d2422; padding: 12px 18px; border-radius: 12px; min-width: 180px; max-width: 320px; pointer-events: none; box-shadow: 0 12px 32px rgba(0, 0, 0, .1), 0 0 0 1px rgba(0, 0, 0, .04); animation: hoverCardIn .2s ease-out }
 .hover-word-card::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 7px solid transparent; border-top-color: #fff }
 @keyframes hoverCardIn { 0% { opacity: 0; transform: translateX(-50%) translateY(6px) scale(.94) } 100% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1) } }
 .hw-top { display: flex; align-items: center; gap: 6px; margin-bottom: 2px }
-.hw-word { font-weight: 700; color: #2d2422; font-size: 17px }
-.hw-pos { font-size: 13px; color: #b8a097 }
-.hw-phonetic { color: #e8734a; font-style: italic; font-size: 14px; margin-bottom: 2px }
+.hw-word { font-weight: 700; color: #2d2422; font-size: 17px; word-break: break-word }
+.hw-pos { font-size: 13px; color: #b8a097; white-space: nowrap }
+.hw-phonetic { color: #e8734a; font-style: italic; font-size: 14px; margin-bottom: 2px; word-break: break-word }
 .hw-loading { color: #b8a097; font-size: 12px }
-.hw-trans { color: #5b9a5e; font-weight: 600; font-size: 16px }
+.hw-trans { color: #5b9a5e; font-weight: 600; font-size: 16px; word-break: break-word }
 
 /* —— 底部 —— */
 .bottom-zone { flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: 28px; padding: 14px 0 18px }
@@ -953,7 +956,7 @@ const pageTitle = computed(() => {
 @media (max-width: 768px) {
   .topbar { padding: 0 16px; height: 50px }
   .page-title { font-size: 14px }
-  .main-content, .card { padding: 0 16px }
+  .main-content, .card { padding: 40px 16px 16px }
   .top-zone { padding-top: 14px; max-width: 100% }
   .chinese-word { font-size: 34px !important }
   .answer-input { max-width: 260px; font-size: 24px }
