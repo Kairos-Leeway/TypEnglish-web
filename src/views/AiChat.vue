@@ -88,7 +88,8 @@ async function send() {
       } else if (line.startsWith('event:')) {
         currentEvent = line.slice(6).trim()
       } else if (line.startsWith('data:')) {
-        const data = line[5] === ' ' && line.length > 6 ? line.slice(6) : line.slice(5)
+        // SSE 规范：跳过 "data:" 后紧跟的第一个空格（协议分隔符），其余内容原样保留
+        const data = line.slice(5)
         currentData.push(data)
       } else if (line === '') {
         dispatchCurrentEvent()
@@ -158,19 +159,6 @@ async function send() {
     }
   } finally {
     loading.value = false; streaming.value = false; abortController = null
-    // 流结束后从接口重新拉取最后一条 AI 消息的正确内容，修正 token 拼接丢失空格的问题
-    const last = messages.value[messages.value.length - 1]
-    if (last && last.role === 'assistant' && conversationId.value) {
-      try {
-        const { data } = await api.get(`/ai/conversation/${conversationId.value}/messages`)
-        const msgs = data as ConversationMessage[]
-        const latest = msgs.findLast(m => m.role === 'assistant')
-        if (latest) {
-          last.content = latest.content
-          messages.value = [...messages.value]
-        }
-      } catch { /* ignore */ }
-    }
     await nextTick()
     chatRef.value?.scrollTo({ top: chatRef.value.scrollHeight, behavior: 'smooth' })
   }
