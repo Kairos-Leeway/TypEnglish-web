@@ -244,7 +244,8 @@ function validateSlot(slot: WordSlot): boolean {
 function checkAllDone() {
   const blanks = slots.value.filter(s => mode.value === 'cloze' ? !s.visible : !s.punctuation)
   if (blanks.length > 0 && blanks.every(s => s.status === 'correct')) {
-    submitBatchResults()
+    // 句子模式只记句子级记录，不走单词批量提交
+    if (!isSentenceMode.value) submitBatchResults()
     celebrate()
     gainXp(30)
     setTimeout(() => nextItem(), 1000)
@@ -428,21 +429,13 @@ function retryWrong() {
 }
 
 function endSession(allDone: boolean) {
-  if (allDone) {
-    submitRemaining() // submit any unsubmitted results
-  }
+  // 不再提交任何未完成的记录——"结束"就是结束，不记录
   finished.value = true
   completed.value = allDone
-  if (isReviewSentence.value && allDone) localStorage.removeItem('reviewSentences')
 }
 
 function submitRemaining() {
-  if (isSentenceMode.value) {
-    if (!isReviewSentence.value && sentences.value[currentIndex.value]) {
-      submitSentenceError()
-    }
-    if (mode.value === 'translation' && !checkSentenceAllDone()) submitBatchResults()
-  }
+  // 不再使用——结束后不再自动提交
 }
 
 function checkSentenceAllDone(): boolean {
@@ -450,13 +443,8 @@ function checkSentenceAllDone(): boolean {
   return blanks.length > 0 && blanks.every(s => s.status === 'correct')
 }
 
-// "结束" button: go directly home
+// "结束" button: go directly home — 不记录，直接走人
 function endNow() {
-  if (isSentenceMode.value) {
-    if (mode.value === 'cloze') recordRemainingSlots()
-    submitBatchResults()
-    submitSentenceError()
-  }
   router.push('/')
 }
 
@@ -484,7 +472,9 @@ onUnmounted(() => { if (countdownTimer) clearInterval(countdownTimer) })
 // Delete word (spelling only)
 const deleteConfirmVisible = ref(false)
 const deleteTargetWord = ref('')
-function confirmDeleteWord() { deleteTargetWord.value = words.value[currentIndex.value]?.word || ''; deleteConfirmVisible.value = true }
+const deleteTargetType = ref<'word' | 'sentence'>('word')
+function confirmDeleteWord() { deleteTargetWord.value = words.value[currentIndex.value]?.word || ''; deleteTargetType.value = 'word'; deleteConfirmVisible.value = true }
+function confirmDeleteSentence() { deleteTargetWord.value = sentences.value[currentIndex.value]?.id ? '(句子ID:' + sentences.value[currentIndex.value].id + ')' : ''; deleteTargetType.value = 'sentence'; deleteConfirmVisible.value = true }
 async function doDeleteWord() {
   const cur = words.value[currentIndex.value]; deleteConfirmVisible.value = false
   if (!cur || !cur.id) return
@@ -495,6 +485,15 @@ async function doDeleteWord() {
   attempts.value = 0; showHint.value = false; showAnswer.value = false; mustRetype.value = false
   userInput.value = ''; feedback.value = ''
   nextTick(() => inputRef.value?.focus())
+}
+async function doDeleteSentence() {
+  const cur = sentences.value[currentIndex.value]; deleteConfirmVisible.value = false
+  if (!cur || !cur.id) return
+  await api.delete(`/sentences/${cur.id}`).catch(() => { })
+  sentences.value.splice(currentIndex.value, 1)
+  if (sentences.value.length === 0) { endSession(true); return }
+  if (currentIndex.value >= sentences.value.length) currentIndex.value--
+  initSlots(sentences.value[currentIndex.value].words)
 }
 
 // Global keyboard
@@ -603,10 +602,26 @@ const pageTitle = computed(() => {
           <div class="progress-row">
             <span class="counter">{{ currentIndex + 1 }}/{{ words.length }}</span>
             <div class="progress-actions">
-              <button class="mini-btn" @click="toggleHint" :disabled="showHint || showAnswer" title="显示提示 (Ctrl+I)">提示</button>
-              <button class="mini-btn btn-skip" @click="skipWord" title="跳过 (Ctrl+S)">跳过</button>
-              <button v-if="words[currentIndex]" class="mini-btn del-btn" @click="confirmDeleteWord">✕ 删除</button>
-              <button class="mini-btn btn-end" @click="endNow">结束</button>
+              <button class="tool-btn hint" @click="toggleHint" :disabled="showHint || showAnswer" title="显示提示 (Ctrl+I)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/></svg>
+                <span>提示</span>
+              </button>
+              <button class="tool-btn speak" @click="speak(words[currentIndex]?.word)" title="听发音">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+                <span>朗读</span>
+              </button>
+              <button class="tool-btn skip" @click="skipWord" title="跳过 (Ctrl+S)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 7 12 1 20"/><polyline points="23 4 17 12 23 20"/></svg>
+                <span>跳过</span>
+              </button>
+              <button v-if="words[currentIndex]" class="tool-btn delete" @click="confirmDeleteWord" title="删除此题">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                <span>删除</span>
+              </button>
+              <button class="tool-btn end" @click="endNow" title="结束练习">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>
+                <span>结束</span>
+              </button>
             </div>
           </div>
         </div>
@@ -665,14 +680,26 @@ const pageTitle = computed(() => {
           <div class="card-top-row">
             <span class="counter">{{ currentIndex + 1 }}/{{ sentences.length }}</span>
             <div class="top-actions">
-              <button class="mini-btn btn-skip" @click="skipSentence">跳过</button>
-              <button class="action-btn" @click="speak(sentences[currentIndex].english)">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" /></svg> 朗读
+              <button class="tool-btn hint" @click="showHintForSentence" title="显示提示 (Ctrl+I)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/></svg>
+                <span>提示</span>
               </button>
-              <button class="action-btn" @click="showHintForSentence">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10" /><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" /></svg> 提示
+              <button class="tool-btn speak" @click="speak(sentences[currentIndex].english)" title="听发音">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+                <span>朗读</span>
               </button>
-              <button class="mini-btn btn-end" @click="endNow">结束</button>
+              <button class="tool-btn skip" @click="skipSentence" title="跳过 (Ctrl+S)">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 7 12 1 20"/><polyline points="23 4 17 12 23 20"/></svg>
+                <span>跳过</span>
+              </button>
+              <button v-if="sentences[currentIndex]?.id" class="tool-btn delete" @click="confirmDeleteSentence" title="删除此题">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                <span>删除</span>
+              </button>
+              <button class="tool-btn end" @click="endNow" title="结束练习">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="9" y1="9" x2="15" y2="15"/><line x1="15" y1="9" x2="9" y2="15"/></svg>
+                <span>结束</span>
+              </button>
             </div>
           </div>
         </div>
@@ -732,8 +759,11 @@ const pageTitle = computed(() => {
 
     <!-- Delete confirm dialog (spelling only) -->
     <el-dialog v-model="deleteConfirmVisible" title="确认删除" width="380px" center>
-      <p style="text-align:center;margin:16px 0;color:#475569;font-size:15px">从题库中删除 <strong style="color:#1e293b">"{{ deleteTargetWord }}"</strong>？</p>
-      <template #footer><el-button @click="deleteConfirmVisible = false">取消</el-button><el-button type="danger" @click="doDeleteWord">删除</el-button></template>
+      <p style="text-align:center;margin:16px 0;color:#475569;font-size:15px">
+        <template v-if="deleteTargetType === 'word'">从题库中删除 <strong style="color:#1e293b">"{{ deleteTargetWord }}"</strong>？</template>
+        <template v-else>确定删除此题？</template>
+      </p>
+      <template #footer><el-button @click="deleteConfirmVisible = false">取消</el-button><el-button type="danger" @click="deleteTargetType === 'word' ? doDeleteWord() : doDeleteSentence()">删除</el-button></template>
     </el-dialog>
   </div>
 </template>
@@ -789,20 +819,51 @@ const pageTitle = computed(() => {
 .attempts-badge { font-size: 13px; color: #c94a4a; font-weight: 600; text-align: center; margin-top: 10px }
 .progress-actions, .top-actions { display: flex; gap: 6px; align-items: center }
 
-.mini-btn { font-size: 15px; color: #b8a097; background: transparent; border: 1px solid rgba(184, 160, 151, .18); cursor: pointer; padding: 5px 12px; border-radius: 8px; transition: all .15s; font-family: inherit }
-.mini-btn:hover { background: rgba(184, 160, 151, .06); color: #4a3d39; border-color: rgba(184, 160, 151, .35) }
-.mini-btn:disabled { opacity: .4; cursor: not-allowed }
-.mini-btn.del-btn:hover { color: #c94a4a; border-color: rgba(201, 74, 74, .3); background: #fdf0f0 }
+/* ── 工具栏按钮 ── */
+.tool-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 6px 14px; border-radius: 10px; font-size: 13px; font-weight: 600;
+  font-family: inherit; cursor: pointer; transition: all .2s ease;
+  border: 1px solid rgba(184,160,151,.15);
+  color: #8b7b74;
+  box-shadow: 0 1px 2px rgba(184,160,151,.08);
+  user-select: none;
+}
+.tool-btn svg { flex-shrink: 0; transition: transform .2s ease }
+.tool-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 4px 14px rgba(184,160,151,.18);
+  border-color: rgba(184,160,151,.28);
+}
+.tool-btn:active { transform: translateY(0) scale(.97); box-shadow: 0 1px 2px rgba(184,160,151,.06); transition: transform .06s ease }
+.tool-btn:disabled { opacity: .4; cursor: not-allowed; transform: none; box-shadow: 0 1px 2px rgba(184,160,151,.08) }
 
-/* 操作按钮: 跳过=绿色, 结束=红色渐变 (带动画) */
-.btn-skip { color: #10b981; border-color: rgba(16, 185, 129, .25) }
-.btn-skip:hover { background: rgba(16, 185, 129, .07); color: #059669; border-color: rgba(16, 185, 129, .4) }
-.btn-end { margin-left: 8px; padding: 5px 16px; background: linear-gradient(135deg, #c94a4a, #b33a3a); color: #fff; border: none; border-radius: 8px; font-weight: 600; box-shadow: 0 2px 6px rgba(201, 74, 74, .25); transition: all .2s ease }
-.btn-end:hover { background: linear-gradient(135deg, #b33a3a, #a02828); transform: translateY(-1px); box-shadow: 0 4px 12px rgba(201, 74, 74, .35) }
-.btn-end:active { transform: translateY(0) scale(.96); transition: transform .08s ease }
+.tool-btn.hint { background: linear-gradient(180deg, #faf9fe 0%, #f3f0fc 100%); color: #7c6fba }
+.tool-btn.hint:hover { color: #5b4fa6; border-color: rgba(124,111,186,.3); box-shadow: 0 4px 14px rgba(124,111,186,.12) }
+.tool-btn.hint:hover svg { transform: rotate(-12deg) }
 
-.action-btn { display: flex; align-items: center; gap: 4px; font-size: 15px; color: #b8a097; background: #fef9f4; border: 1px solid rgba(184, 160, 151, .18); cursor: pointer; padding: 5px 12px; border-radius: 8px; transition: all .15s; font-family: inherit }
-.action-btn:hover { border-color: rgba(184, 160, 151, .25); color: #2d2422 }
+.tool-btn.speak { background: linear-gradient(180deg, #fefaf7 0%, #fdf3eb 100%); color: #d4906a }
+.tool-btn.speak:hover { color: #c07448; border-color: rgba(196,148,106,.3); box-shadow: 0 4px 14px rgba(196,148,106,.12) }
+.tool-btn.speak:hover svg { transform: scale(1.15) }
+
+.tool-btn.skip { background: linear-gradient(180deg, #f9fcfa 0%, #eff7f2 100%); color: #7cae8c }
+.tool-btn.skip:hover { color: #5a8a6a; border-color: rgba(124,174,140,.3); box-shadow: 0 4px 14px rgba(124,174,140,.12) }
+.tool-btn.skip:hover svg { transform: translateX(2px) }
+
+.tool-btn.delete { background: linear-gradient(180deg, #fefafa 0%, #fdf2f2 100%); color: #c47a7a }
+.tool-btn.delete:hover { color: #a85a5a; border-color: rgba(196,122,122,.3); box-shadow: 0 4px 14px rgba(196,122,122,.12) }
+.tool-btn.delete:hover svg { transform: rotate(90deg) }
+
+.tool-btn.end {
+  color: #d4653a; border-color: rgba(232,115,74,.15);
+  background: linear-gradient(180deg, #fef9f4 0%, #fef3ee 100%);
+  box-shadow: 0 1px 3px rgba(232,115,74,.08);
+}
+.tool-btn.end:hover {
+  color: #b33a3a; border-color: rgba(232,115,74,.35);
+  box-shadow: 0 4px 16px rgba(232,115,74,.2);
+}
+.tool-btn.end:hover svg { transform: rotate(90deg) scale(1.1) }
 
 /* —— 中间 —— */
 .mid-zone { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 8px 0; gap: 0 }

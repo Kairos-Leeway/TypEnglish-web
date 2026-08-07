@@ -30,13 +30,24 @@ marked.setOptions({
   gfm: true,
 })
 
+/** 修复流式 SSE 拼接导致的 markdown 标记符紧跟内容（无空格）的问题。
+ *  例如：event1="##", event2="标题" → "##标题"（markdown 不解析），应为 "## 标题" */
+function fixMalformedMarkdown(text: string): string {
+  return text
+    // 标题：##text → ## text
+    .replace(/^(#{1,6})([^\s#])/gm, '$1 $2')
+    // 无序列表：-text → - text, *text → * text, +text → + text
+    .replace(/^([-*+])([^\s])/gm, '$1 $2')
+    // 有序列表：1.text → 1. text
+    .replace(/^(\d+\.)([^\s])/gm, '$1 $2')
+    // 引用：>text → > text
+    .replace(/^(>+)([^\s>])/gm, '$1 $2')
+}
+
 const html = computed(() => {
   try {
-    let raw = props.content || ''
-    // 修复 AI 输出的 markdown 标题缺少空格的问题：
-    // ###🐦 类型三 → ### 🐦 类型三
-    raw = raw.replace(/^(#{1,6})(\S)/gm, '$1 $2')
-    return marked.parse(raw) as string
+    const raw = props.content || ''
+    return marked.parse(fixMalformedMarkdown(raw)) as string
   } catch {
     return props.content || ''
   }

@@ -255,8 +255,8 @@ onMounted(()=>{if(route.query.category)selectedCategory.value=route.query.catego
           <div class="progress-row">
             <span class="counter">{{currentIndex+1}}/{{words.length}}</span>
             <div class="progress-actions">
-              <button class="mini-btn" @click="toggleHint" :disabled="showHint || showAnswer" title="显示提示 (Ctrl+I)">提示</button>
               <button class="mini-btn btn-skip" @click="skipToNext" title="跳过 (Ctrl+S)">跳过</button>
+              <button class="mini-btn" @click="toggleHint" :disabled="showHint || showAnswer" title="显示提示 (Ctrl+I)">提示</button>
               <button v-if="words[currentIndex]" class="mini-btn del-btn" @click="confirmDeleteWord">✕ 删除</button>
               <button class="mini-btn btn-end" @click="finished=true">结束</button>
             </div>

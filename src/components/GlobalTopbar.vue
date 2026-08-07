@@ -16,6 +16,7 @@ onMounted(() => {
 const navItems = [
   { path: '/', label: '首页' },
   { path: '/errorbook', label: '错题本', badge: true },
+  { path: '/records', label: '记录' },
   { path: '/ai-generate', label: 'AI出题' },
   { path: '/ai-chat', label: 'AI助教' },
 ]

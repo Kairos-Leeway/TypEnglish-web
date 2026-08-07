@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, computed, reactive } from 'vue'
 import { useRouter } from 'vue-router'
 import api from '../api'
 import { speak } from '../composables/useTts'
@@ -83,19 +83,28 @@ function startSentenceRepractice(se: any) {
 
 
 
-async function clearAllWords() {
-  if (!confirm('确定清空所有单词错题吗?')) return
-  await api.delete('/errorbook/clear-all').catch(() => {})
-  wordErrors.value = []; wordTotal.value = 0
+const clearConfirm = reactive({ visible: false, type: '' as 'word' | 'sentence', inputText: '' })
+
+function showClearConfirm(type: 'word' | 'sentence') { clearConfirm.type = type; clearConfirm.inputText = ''; clearConfirm.visible = true }
+function hideClearConfirm() { clearConfirm.visible = false; clearConfirm.inputText = '' }
+
+const confirmKeyword = 'DELETE'
+const confirmValid = computed(() => clearConfirm.inputText === confirmKeyword)
+
+async function doClearAll() {
+  if (!confirmValid.value) return
+  hideClearConfirm()
+  const isWord = clearConfirm.type === 'word'
+  if (isWord) {
+    await api.delete('/errorbook/clear-all').catch(() => {})
+    wordErrors.value = []; wordTotal.value = 0
+  } else {
+    await api.delete('/errorbook/sentences/clear-all').catch(() => {})
+    sentenceErrors.value = []; sentTotal.value = 0
+  }
   errorBook.setErrorCount(0)
 }
 
-async function clearAllSentences() {
-  if (!confirm('确定清空所有句子错题吗?')) return
-  await api.delete('/errorbook/sentences/clear-all').catch(() => {})
-  sentenceErrors.value = []; sentTotal.value = 0
-  errorBook.setErrorCount(0)
-}
 
 onMounted(async () => {
   await Promise.all([loadWordErrors(), loadSentenceErrors()])
@@ -147,7 +156,7 @@ onMounted(async () => {
         <div class="list-toolbar">
           <span class="list-info">第 {{wordPage}} 页 · 共 {{wordTotal}} 词</span>
           <div style="display:flex;gap:10px">
-            <button class="action-btn danger" @click="clearAllWords">全部清空</button>
+            <button class="action-btn danger" @click="showClearConfirm('word')">全部清空</button>
             <button class="action-btn primary" @click="startWordPractice">拼写练习 ({{Math.min(30,wordErrors.length)}}个)</button>
           </div>
         </div>
@@ -181,7 +190,7 @@ onMounted(async () => {
         <div class="list-toolbar">
           <span class="list-info">第 {{sentPage}} 页 · 共 {{sentTotal}} 句</span>
           <div style="display:flex;gap:10px">
-            <button class="action-btn danger" @click="clearAllSentences">全部清空</button>
+            <button class="action-btn danger" @click="showClearConfirm('sentence')">全部清空</button>
             <button class="action-btn primary" @click="startSentenceBatchPractice">批量练习 (抽{{Math.max(10,sentenceErrors.length)}}句)</button>
           </div>
         </div>
@@ -210,6 +219,36 @@ onMounted(async () => {
           <button :disabled="sentPage>=totalSentPages" @click="sentPage++;loadSentenceErrors()">›</button>
         </div>
       </template>
+
+      <!-- ===== 清空二次确认弹窗 ===== -->
+      <div v-if="clearConfirm.visible" class="modal-overlay" @click.self="hideClearConfirm()">
+        <div class="modal-card" @click.stop>
+          <div class="modal-icon">
+            <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#c94a4a" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          </div>
+          <h3 class="modal-title">{{ clearConfirm.type === 'word' ? '清空所有单词错题？' : '清空所有句子错题？' }}</h3>
+          <p class="modal-body">
+            此操作<span style="color:#c94a4a;font-weight:600">不可撤销</span>，
+            将删除你全部的{{ clearConfirm.type === 'word' ? wordTotal : sentTotal }} 条{{
+              clearConfirm.type === 'word' ? '单词' : '句子'
+            }}错题记录。
+          </p>
+          <div class="confirm-input-wrap">
+            <span class="confirm-input-label">输入 <b>DELETE</b> 以继续</span>
+            <input
+              v-model="clearConfirm.inputText"
+              class="confirm-input"
+              :placeholder="confirmKeyword"
+              autofocus
+              @keydown.enter="doClearAll()"
+            />
+          </div>
+          <div class="modal-actions">
+            <button class="modal-btn cancel" @click="hideClearConfirm()">取消</button>
+            <button class="modal-btn confirm" :disabled="!confirmValid" @click="doClearAll()">确认清空</button>
+          </div>
+        </div>
+      </div>
     </main>
   </div>
 </template>
@@ -319,6 +358,38 @@ onMounted(async () => {
 .submit-btn.next{background:#5b9a5e}
 .fb{margin-top:12px;font-size:15px;font-weight:600;color:#5b9a5e;text-align:center}
 .fb.wrong{color:#c94a4a}
+
+/* ── 清空确认弹窗 ── */
+.modal-overlay {
+  position: fixed; inset: 0; z-index: 1000;
+  background: rgba(0,0,0,.35); backdrop-filter: blur(4px);
+  display: flex; align-items: center; justify-content: center;
+  animation: fadeIn .2s ease;
+}
+.modal-card {
+  background: #fff; border-radius: 20px; padding: 36px 40px 28px;
+  max-width: 380px; width: 90%; text-align: center;
+  box-shadow: 0 16px 48px rgba(0,0,0,.12);
+  animation: scaleIn .25s ease;
+}
+.modal-icon { margin-bottom: 14px }
+.modal-title { font-size: 18px; font-weight: 700; color: #2d2422; margin: 0 0 8px }
+.modal-body { font-size: 14px; color: #8b7b74; line-height: 1.6; margin: 0 0 24px }
+.modal-actions { display: flex; gap: 12px; justify-content: center }
+.modal-btn { padding: 10px 32px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; font-family: inherit; transition: all .15s }
+.modal-btn.cancel { background: rgba(184,160,151,.08); color: #8b7b74 }
+.modal-btn.cancel:hover { background: rgba(184,160,151,.15); color: #2d2422 }
+.modal-btn.confirm { background: #c94a4a; color: #fff; box-shadow: 0 2px 8px rgba(201,74,74,.25) }
+.modal-btn.confirm:hover { background: #b33a3a; transform: translateY(-1px); box-shadow: 0 4px 14px rgba(201,74,74,.35) }
+.modal-btn.confirm:disabled { opacity: .35; cursor: not-allowed; transform: none; box-shadow: none }
+.confirm-input-wrap { margin: 0 0 20px; text-align: center }
+.confirm-input-label { display: block; font-size: 12px; color: #b8a097; margin-bottom: 8px }
+.confirm-input-label b { color: #c94a4a }
+.confirm-input { width: 100%; max-width: 200px; padding: 10px 14px; border: 2px solid rgba(184,160,151,.18); border-radius: 10px; font-size: 15px; font-family: inherit; text-align: center; color: #2d2422; outline: none; transition: border-color .15s }
+.confirm-input:focus { border-color: #c94a4a }
+.confirm-input::placeholder { color: #d4c8c2; font-size: 13px }
+@keyframes fadeIn { 0%{opacity:0} 100%{opacity:1} }
+@keyframes scaleIn { 0%{opacity:0;transform:scale(.92)} 100%{opacity:1;transform:scale(1)} }
 
 @media(max-width:768px){
   .topbar,.main-area{padding-left:20px;padding-right:20px}
