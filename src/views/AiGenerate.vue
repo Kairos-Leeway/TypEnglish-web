@@ -232,25 +232,25 @@ function doCountdown(path: string) {
 </template>
 
 <style scoped>
-.ai-generate{min-height:100vh;background:#fef9f4}
-.main-area{max-width:720px;margin:0 auto;padding:60px 48px}
-.gen-card{background:#fff;border-radius:20px;padding:40px;border:1px solid rgba(184,160,151,.18);box-shadow:0 1px 3px rgba(0,0,0,.04)}
+.ai-generate{min-height:100vh;background:transparent}
+.main-area{max-width:760px;margin:0 auto;padding:50px 32px 80px}
+.gen-card{background:rgba(255,255,255,.78);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,.65);border-radius:24px;padding:40px;box-shadow:0 14px 40px rgba(184,160,151,.08),0 4px 12px rgba(184,160,151,.04),inset 0 0 0 1px rgba(255,255,255,.5)}
 .gen-card h2{font-size:22px;color:#2d2422;margin:0 0 4px}
 .subtitle{font-size:14px;color:#b8a097;margin:0 0 28px}
 .mode-switch{display:flex;gap:8px;margin-bottom:24px}
-.mode-btn{flex:1;padding:12px;border:2px solid rgba(184,160,151,.18);border-radius:12px;background:#fff;color:#b8a097;font-size:15px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:all .15s}
-.mode-btn:hover{border-color:rgba(232,115,74,.4)}.mode-btn.active{border-color:#e8734a;color:#e8734a;background:#fef3ee}
+.mode-btn{flex:1;padding:12px;border:1.5px solid rgba(255,255,255,.65);border-radius:14px;background:rgba(255,255,255,.6);color:#8b7b74;font-size:15px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:all .15s}
+.mode-btn:hover{border-color:rgba(232,115,74,.4);background:#fff}.mode-btn.active{border-color:#e8734a;color:#e8734a;background:#fff}
 .params{margin-bottom:24px}
 .param-group{margin-bottom:16px}.param-group label{display:block;font-size:13px;font-weight:600;color:#2d2422;margin-bottom:8px}
 .topic-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:10px}
-.chip{padding:5px 14px;border:1px solid rgba(184,160,151,.18);border-radius:20px;background:#fff;color:#2d2422;font-size:13px;cursor:pointer;transition:all .15s}
-.chip:hover{border-color:rgba(232,115,74,.4)}.chip.active{border-color:#e8734a;background:#fef3ee;color:#e8734a;font-weight:600}
-.topic-input{width:100%;padding:10px 14px;border:1.5px solid rgba(184,160,151,.18);border-radius:10px;font-size:14px;outline:0;box-sizing:border-box;background:#fff;color:#2d2422}.topic-input:focus{border-color:#e8734a;background:#fff}
+.chip{padding:6px 16px;border:1px solid rgba(255,255,255,.65);border-radius:20px;background:rgba(255,255,255,.6);color:#2d2422;font-size:13px;cursor:pointer;transition:all .15s}
+.chip:hover{border-color:rgba(232,115,74,.4);background:#fff}.chip.active{border-color:#e8734a;background:#fff;color:#e8734a;font-weight:600}
+.topic-input{width:100%;padding:12px 18px;border:1.5px solid rgba(184,160,151,.15);border-radius:14px;font-size:15px;outline:0;box-sizing:border-box;background:rgba(255,255,255,.7);color:#2d2422;transition:all .15s}.topic-input:focus{border-color:rgba(232,115,74,.45);background:#fff;box-shadow:0 0 0 4px rgba(232,115,74,.08)}
 .topic-input::placeholder{color:#b8a097}
 .param-row{display:flex;gap:24px}
-.stepper{display:flex;align-items:center;gap:0;border:1.5px solid rgba(184,160,151,.18);border-radius:10px;overflow:hidden;width:fit-content}
-.stepper button{width:38px;height:38px;border:none;background:#fff;font-size:18px;cursor:pointer;color:#2d2422;display:flex;align-items:center;justify-content:center}
-.stepper button:hover{background:#fef3ee}
+.stepper{display:flex;align-items:center;gap:0;border:1.5px solid rgba(255,255,255,.65);border-radius:12px;overflow:hidden;width:fit-content;background:rgba(255,255,255,.6)}
+.stepper button{width:38px;height:38px;border:none;background:transparent;font-size:18px;cursor:pointer;color:#2d2422;display:flex;align-items:center;justify-content:center;transition:all .15s}
+.stepper button:hover{background:rgba(232,115,74,.08);color:#e8734a}
 .stepper-val{width:48px;text-align:center;font-size:16px;font-weight:700;color:#2d2422}
 .stepper-input{width:52px;border:none;text-align:center;font-size:16px;font-weight:700;color:#2d2422;background:0 0;outline:0;padding:0;-moz-appearance:textfield}
 .stepper-input::-webkit-outer-spin-button,.stepper-input::-webkit-inner-spin-button{-webkit-appearance:none;margin:0}
@@ -262,29 +262,29 @@ function doCountdown(path: string) {
 .spinner{width:20px;height:20px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 
-.progress-box{margin-top:16px;padding:16px;background:#fef9f4;border-radius:12px;border:1px solid rgba(232,115,74,.15)}
-.progress-bar-wrap{height:6px;background:rgba(184,160,151,.15);border-radius:3px;overflow:hidden;margin-bottom:10px}
-.progress-bar-fill{height:100%;background:linear-gradient(90deg,#e8734a,#f0a478);border-radius:3px;transition:width .4s}
+.progress-box{margin-top:16px;padding:18px;background:rgba(255,255,255,.6);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-radius:14px;border:1px solid rgba(255,255,255,.65);box-shadow:0 6px 18px rgba(184,160,151,.05)}
+.progress-bar-wrap{height:6px;background:rgba(184,160,151,.12);border-radius:999px;overflow:hidden;margin-bottom:10px}
+.progress-bar-fill{height:100%;background:linear-gradient(90deg,#e8734a,#f0a478);border-radius:999px;transition:width .4s}
 .progress-bar-fill.indeterminate{width:30%;animation:indeterminate-bar 1.5s ease-in-out infinite}
 @keyframes indeterminate-bar{0%{transform:translateX(-100%)}100%{transform:translateX(430%)}}
 .progress-text{font-size:13px;color:#b8a097;margin:0;text-align:center}
 
 .error-box{margin-top:16px;padding:12px 16px;background:rgba(254,226,226,.5);color:#c94a4a;border-radius:10px;font-size:14px}
-.result-box{margin-top:20px;padding:20px;background:#fef9f4;border-radius:14px;border:1px solid rgba(232,115,74,.15);position:relative}
-.result-header{display:flex;align-items:center;gap:8px;font-size:15px;font-weight:600;color:#2d2422;margin-bottom:12px}
-.result-words{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:16px}
-.result-word{padding:4px 10px;background:#fff;border-radius:6px;font-size:13px;color:#2d2422;border:1px solid rgba(184,160,151,.18)}
-.result-sentences{display:flex;flex-direction:column;gap:6px;margin-bottom:16px;max-height:300px;overflow-y:auto}
-.result-sentence{display:flex;align-items:center;justify-content:space-between;padding:8px 12px;background:#fff;border-radius:8px;border:1px solid rgba(184,160,151,.12);font-size:13px}
+.result-box{margin-top:20px;padding:22px;background:rgba(255,255,255,.6);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-radius:18px;border:1px solid rgba(255,255,255,.65);position:relative;box-shadow:0 8px 24px rgba(184,160,151,.06)}
+.result-header{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:700;color:#2d2422;margin-bottom:14px}
+.result-words{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}
+.result-word{padding:5px 12px;background:rgba(255,255,255,.8);border-radius:8px;font-size:13px;color:#2d2422;border:1px solid rgba(255,255,255,.65)}
+.result-sentences{display:flex;flex-direction:column;gap:8px;margin-bottom:18px;max-height:300px;overflow-y:auto}
+.result-sentence{display:flex;align-items:center;justify-content:space-between;padding:10px 14px;background:rgba(255,255,255,.8);border-radius:10px;border:1px solid rgba(255,255,255,.65);font-size:14px}
 .rs-en{color:#2d2422;font-weight:500;flex:1}
 .rs-cn{color:#b8a097;margin-left:12px;flex-shrink:0}
 .result-more{font-size:12px;color:#b8a097;display:flex;align-items:center}
-.result-actions{display:flex;gap:10px}
-.start-btn{padding:10px 28px;background:#e8734a;color:#fff;border:none;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer;transition:all .15s;box-shadow:0 4px 12px rgba(232,115,74,.2)}
-.start-btn:hover{background:#d4653a;transform:translateY(-1px);box-shadow:0 6px 20px rgba(232,115,74,.3)}
+.result-actions{display:flex;gap:12px}
+.start-btn{padding:12px 28px;background:linear-gradient(135deg,#e8734a,#f0a060);color:#fff;border:none;border-radius:12px;font-size:15px;font-weight:700;cursor:pointer;transition:all .15s;box-shadow:0 6px 18px rgba(232,115,74,.25)}
+.start-btn:hover{transform:translateY(-1px);box-shadow:0 10px 26px rgba(232,115,74,.35)}
 .start-btn.secondary{background:#fff;color:#e8734a;border:1.5px solid rgba(232,115,74,.25);box-shadow:none}
-.start-btn.secondary:hover{background:#fef3ee;border-color:#e8734a}
-.countdown-overlay{position:absolute;inset:0;background:rgba(254,249,244,.95);border-radius:14px;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:2}
+.start-btn.secondary:hover{background:#fff5f0;border-color:#e8734a}
+.countdown-overlay{position:absolute;inset:0;background:rgba(255,251,246,.92);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);border-radius:18px;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:2}
 .countdown-num{font-size:56px;font-weight:800;color:#e8734a;animation:pop .5s ease}
 .countdown-overlay p{color:#2d2422;font-size:15px;margin:8px 0 0}
 @keyframes pop{0%{transform:scale(.5);opacity:0}80%{transform:scale(1.1)}100%{transform:scale(1);opacity:1}}

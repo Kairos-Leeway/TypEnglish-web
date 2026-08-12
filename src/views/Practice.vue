@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick, watch, computed } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
+import { useRoute } from 'vue-router'
 import api from '../api'
 import { speak } from '../composables/useTts'
 import { playChime, playKeytap } from '../composables/useChime'
@@ -10,7 +10,6 @@ const { level, progress, gain: gainXp } = useXp()
 const { lookup } = useWordLookup()
 
 const route = useRoute()
-const router = useRouter()
 const words = ref<any[]>([])
 const currentIndex = ref(0)
 const userInput = ref('')
@@ -69,19 +68,6 @@ function hintText(){const w=words.value[currentIndex.value];if(!w)return'';const
 const curWord = computed(() => words.value[currentIndex.value])
 /** 当前例句（来自词库或 AI 补全） */
 const exampleText = computed(() => curWord.value?.example || fetchedExample.value || '')
-/** 例句展示：将目标词替换为通过输入逐字填充的下划线 */
-const maskedExample = computed(() => {
-  const ex = exampleText.value
-  const w = curWord.value?.word
-  if (!ex || !w) return ''
-  const input = userInput.value
-  // 构建展示字符串：原词位置按已输入内容逐步揭示
-  const regex = new RegExp(w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'gi')
-  const len = w.length
-  // 用已输入的内容填充，其余为空格占位（为每个字符留间距）
-  const filled = input.padEnd(len, ' ').slice(0, len)
-  return ex.replace(regex, () => filled)
-})
 /** 例句中目标词所在的下划线（纯 CSS 展示用） */
 function renderExampleHtml() {
   const ex = exampleText.value.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
@@ -184,7 +170,6 @@ function skipToNext(){
   if (currentIndex.value >= words.value.length - 1) { finished.value = true; return }
   nextWord()
 }
-function endSession(){ router.push('/') }
 
 const deleteConfirmVisible = ref(false)
 const deleteTargetWord = ref('')

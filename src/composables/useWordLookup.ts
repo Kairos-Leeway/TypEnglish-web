@@ -24,7 +24,7 @@ function key(lang: string, word: string) {
 
 /** 获取单词详情（带前端缓存 + 去重请求） */
 export function useWordLookup() {
-  const pending = new Map<string, Promise<WordDetail>>()
+  const pending = new Map<string, Promise<WordDetail | null>>()
 
   async function lookup(language: string, word: string): Promise<WordDetail | null> {
     if (!word || word.length < 1) return null

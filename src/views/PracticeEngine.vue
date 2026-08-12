@@ -10,10 +10,11 @@ import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
 import { speak } from '../composables/useTts'
 import { playChime, playKeytap } from '../composables/useChime'
-import { celebrate } from '../composables/useConfetti'
 import { useWordLookup } from '../composables/useWordLookup'
 import { useXp } from '../composables/useXp'
 import { useAuthStore } from '../stores/auth'
+import RoundResult from '../components/RoundResult.vue'
+import CelebrationFrame from '../components/CelebrationFrame.vue'
 
 const route = useRoute()
 const router = useRouter()
@@ -38,10 +39,6 @@ const mode = computed<PracticeMode>(() => {
   return pathToMode[route.path] || 'spelling'
 })
 const isSentenceMode = computed(() => mode.value === 'translation' || mode.value === 'cloze')
-const isReview = computed(() => {
-  const r = route.query.review as string
-  return r === 'word' || r === 'sentence'
-})
 const isReviewWord = computed(() => route.query.review === 'word')
 const isReviewSentence = computed(() => route.query.review === 'sentence')
 
@@ -51,6 +48,7 @@ const isReviewSentence = computed(() => route.query.review === 'sentence')
 const loading = ref(true)
 const finished = ref(false)
 const completed = ref(false) // true: 做完所有题; false: 中途结束
+const showCelebration = ref(false)
 const currentIndex = ref(0)
 const language = ref('en')
 const MAX_WRONG_BEFORE_HINT = 3
@@ -140,9 +138,16 @@ interface WordSlot {
 interface WordDetail {
   found: boolean; word: string; phonetic?: string; translation?: string; partOfSpeech?: string; example?: string
 }
+interface SentenceResult {
+  sentenceId?: number
+  english: string
+  chinese: string
+  correct: boolean
+  slots: Array<{ index: number; word: string; visible: boolean; correct: boolean; answer: string }>
+}
 const sentences = ref<any[]>([])
 const slots = ref<WordSlot[]>([])
-const sentenceResults = ref<Array<{ word: string; wordId: number | null; correct: boolean; answer: string }>>([])
+const sentenceResults = ref<SentenceResult[]>([])
 const reviewData = ref<any[]>([])
 
 const hoveredIdx = ref<number | null>(null)
@@ -204,19 +209,28 @@ function moveToSlot(fromIdx: number, dir: number) {
   }
 }
 
-function recordSlot(slot: WordSlot, correct: boolean) {
-  const wordText = slot.word.replace(/[^a-zA-Z'-]/g, '')
-  sentenceResults.value.push({ word: wordText, wordId: slot.wordId, correct, answer: slot.userInput })
+function buildSentenceSlotsSnapshot(): SentenceResult['slots'] {
+  return slots.value.map((s) => ({
+    index: s.index,
+    word: s.word,
+    visible: mode.value === 'cloze' ? s.visible : s.punctuation,
+    correct: s.status === 'correct',
+    answer: s.userInput || '',
+  }))
 }
 
-function recordRemainingSlots() {
-  for (const s of slots.value) {
-    const isBlank = mode.value === 'cloze' ? !s.visible : !s.punctuation
-    if (isBlank && s.status !== 'correct') {
-      const wordText = s.word.replace(/[^a-zA-Z'-]/g, '')
-      sentenceResults.value.push({ word: wordText, wordId: s.wordId, correct: false, answer: s.userInput || '(未填)' })
-    }
-  }
+function recordCurrentSentence(correct: boolean) {
+  const sent = sentences.value[currentIndex.value]
+  if (!sent) return
+  const already = sentenceResults.value.find((r) => r.sentenceId === (sent.id || currentIndex.value))
+  if (already) return
+  sentenceResults.value.push({
+    sentenceId: sent.id || currentIndex.value,
+    english: sent.english,
+    chinese: sent.chinese,
+    correct,
+    slots: buildSentenceSlotsSnapshot(),
+  })
 }
 
 function validateSlot(slot: WordSlot): boolean {
@@ -229,13 +243,11 @@ function validateSlot(slot: WordSlot): boolean {
   if (ok) {
     slot.status = 'correct'; correctCount.value++
     gainXp(10)
-    if (mode.value === 'cloze') recordSlot(slot, true)
     checkAllDone()
     return true
   } else {
     slot.status = 'retry'; slot.shaking = true; slot.wrongCount++
     setTimeout(() => slot.shaking = false, 500)
-    if (mode.value === 'cloze') recordSlot(slot, false)
     if (slot.wrongCount >= MAX_WRONG_BEFORE_HINT) {
       slot.hintLevel = Math.min(slot.hintLevel + 1, slot.word.length); slot.wrongCount = 0
     }
@@ -247,11 +259,10 @@ function validateSlot(slot: WordSlot): boolean {
 function checkAllDone() {
   const blanks = slots.value.filter(s => mode.value === 'cloze' ? !s.visible : !s.punctuation)
   if (blanks.length > 0 && blanks.every(s => s.status === 'correct')) {
-    // 句子模式只记句子级记录，不走单词批量提交
-    if (!isSentenceMode.value) submitBatchResults()
-    celebrate()
+    recordCurrentSentence(true)
+    submitBatchResults()
     gainXp(30)
-    setTimeout(() => nextItem(), 1000)
+    setTimeout(() => nextItem(), 800)
   }
 }
 
@@ -350,8 +361,8 @@ function submitSentenceError() {
 }
 
 function skipSentence() {
-  if (isReviewSentence.value) submitBatchResults()
-  if (mode.value === 'cloze') recordRemainingSlots()
+  if (isReviewSentence.value) { submitBatchResults(); endSession(true); return }
+  recordCurrentSentence(false)
   submitSentenceError()
   if (currentIndex.value >= sentences.value.length - 1) { endSession(true); return }
   nextItem()
@@ -359,6 +370,7 @@ function skipSentence() {
 
 function nextItem() {
   if (isSentenceMode.value) {
+    recordCurrentSentence(false)
     if (currentIndex.value < sentences.value.length - 1) {
       currentIndex.value++; initSlots(sentences.value[currentIndex.value].words)
     } else { endSession(true) }
@@ -435,15 +447,7 @@ function endSession(allDone: boolean) {
   // 不再提交任何未完成的记录——"结束"就是结束，不记录
   finished.value = true
   completed.value = allDone
-}
-
-function submitRemaining() {
-  // 不再使用——结束后不再自动提交
-}
-
-function checkSentenceAllDone(): boolean {
-  const blanks = slots.value.filter(s => mode.value === 'cloze' ? !s.visible : !s.punctuation)
-  return blanks.length > 0 && blanks.every(s => s.status === 'correct')
+  if (allDone) showCelebration.value = true
 }
 
 // "结束" button: go directly home — 不记录，直接走人
@@ -452,28 +456,21 @@ function endNow() {
 }
 
 function restart() {
-  // 清除自动倒计时，防止用户手动点"再来一轮"后定时器又触发一次
-  if (countdownTimer) { clearInterval(countdownTimer); countdownTimer = null }
-  countdown.value = 0
+  showCelebration.value = false
   finished.value = false; completed.value = false; currentIndex.value = 0; correctCount.value = 0
   if (isSentenceMode.value) { sentences.value = []; slots.value = []; sentenceResults.value = [] }
   else { words.value = []; userInput.value = ''; results.value = []; attempts.value = 0; showHint.value = false; showAnswer.value = false; mustRetype.value = false }
   loadData()
 }
 
-// 3s auto-countdown on full completion
-const countdown = ref(0)
-let countdownTimer: ReturnType<typeof setInterval> | null = null
-watch(finished, (val) => {
-  if (val && completed.value) {
-    countdown.value = 3
-    countdownTimer = setInterval(() => {
-      countdown.value--
-      if (countdown.value <= 0) { if (countdownTimer) clearInterval(countdownTimer); restart() }
-    }, 1000)
-  }
-})
-onUnmounted(() => { if (countdownTimer) clearInterval(countdownTimer) })
+function goHome() {
+  if (isReviewSentence.value) router.push('/errorbook')
+  else router.push('/')
+}
+
+function onReviewWrong() {
+  retryWrong()
+}
 
 // Delete word (spelling only)
 const deleteConfirmVisible = ref(false)
@@ -527,15 +524,6 @@ onMounted(() => {
 onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
 
 // Computed for result panel
-const totalItems = computed(() => isSentenceMode.value ? sentences.value.length : words.value.length)
-const itemLabel = computed(() => isSentenceMode.value ? '句' : '题')
-const accuracyPct = computed(() => {
-  if (isSentenceMode.value && mode.value === 'cloze') return 0 // cloze doesn't track per-item completion well
-  return completed.value ? (totalItems.value > 0 ? Math.round(correctCount.value / Math.max(1, (isSentenceMode.value ? sentences.value.length * slots.value.filter(s => mode.value === 'cloze' ? !s.visible : !s.punctuation).length : totalItems.value)) * 100) : 0) : 0
-})
-
-const shortReviewSentences = computed(() => reviewData.value.length > 0)
-
 const pageTitle = computed(() => {
   if (isReviewWord.value) return 'TypEnglish · 错题复习'
   if (isReviewSentence.value) return 'TypEnglish · 错题复习'
@@ -547,6 +535,8 @@ const pageTitle = computed(() => {
 
 <template>
   <div class="practice-engine">
+    <CelebrationFrame v-show="showCelebration" v-model="showCelebration" />
+
     <!-- ========== TOPBAR ========== -->
     <header class="topbar">
       <router-link to="/" class="logo-link"><span class="logo-icon">T</span></router-link>
@@ -554,7 +544,7 @@ const pageTitle = computed(() => {
       <div style="flex:1" />
       <div class="xp-bar">
         <span class="xp-label">Lv.{{ level }}</span>
-        <el-progress :percentage="progress" :show-text="false" :stroke-width="4" style="width:72px" color="#10b981" />
+        <el-progress :percentage="progress" :show-text="false" :stroke-width="4" style="width:72px" color="#34c759" />
       </div>
       <button class="logout-btn" @click="auth.logout(); router.push('/login')">退出</button>
     </header>
@@ -565,40 +555,20 @@ const pageTitle = computed(() => {
     </div>
 
     <!-- ========== RESULT PANEL ========== -->
-    <div v-else-if="finished" class="result-panel">
-      <div class="result-icon-wrap">
-        <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="#10b981" stroke-width="2.5"><polyline points="20 6 9 17 4 12" /></svg>
-      </div>
-      <h2>{{ completed ? '练习完成' : '已结束' }}</h2>
-
-      <!-- Spelling result -->
-      <template v-if="!isSentenceMode">
-        <p class="result-meta">{{ words.length }} 题 · {{ results.filter(r => r.correct).length }} 正确</p>
-        <div class="result-big-num">{{ words.length > 0 ? Math.round(results.filter(r => r.correct).length / words.length * 100) : 0 }}%</div>
-        <div class="result-words">
-          <span v-for="(r, i) in results" :key="i" :class="['rw-chip', r.correct ? 'rw-ok' : 'rw-err']">{{ r.word.word }}</span>
-        </div>
-      </template>
-
-      <!-- Sentence result -->
-      <template v-else>
-        <p class="result-meta">{{ sentences.length }} 个句子{{ mode === 'cloze' ? ' · 正确 ' + correctCount + ' 个空' : '' }}</p>
-      </template>
-
-      <!-- Actions: only for fully completed -->
-      <template v-if="completed">
-        <p v-if="countdown > 0" class="countdown-hint">{{ countdown }}s 后自动再来一轮</p>
-        <div class="result-actions">
-          <router-link v-if="isReviewSentence" to="/errorbook" class="retry-btn" style="display:inline-block;text-decoration:none">返回错题本</router-link>
-          <router-link v-else to="/" class="retry-btn" style="display:inline-block;text-decoration:none">返回首页</router-link>
-          <button class="retry-btn secondary" @click="restart()">再来一轮</button>
-          <button v-if="!isSentenceMode && results.filter(r => !r.correct).length > 0" class="retry-btn outline" @click="retryWrong()">复习错题 ({{ results.filter(r => !r.correct).length }})</button>
-        </div>
-      </template>
-      <template v-else>
-        <button class="retry-btn" style="margin-top:16px" @click="router.push('/')">返回首页</button>
-      </template>
-    </div>
+    <RoundResult
+      v-else-if="finished"
+      :mode="mode"
+      :completed="completed"
+      :is-review-sentence="isReviewSentence"
+      :words="words"
+      :results="results"
+      :sentences="sentences"
+      :sentence-results="sentenceResults"
+      :correct-count="correctCount"
+      @home="goHome"
+      @restart="restart"
+      @review-wrong="onReviewWrong"
+    />
 
     <!-- ========== SPELLING MID-ZONE ========== -->
     <template v-else-if="!isSentenceMode && words.length > 0">
@@ -767,11 +737,11 @@ const pageTitle = computed(() => {
     <div v-if="deleteConfirmVisible" class="modal-overlay" @click.self="deleteConfirmVisible = false">
       <div class="modal-card" @click.stop>
         <div class="modal-icon">
-          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#c94a4a" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="#ff3b30" stroke-width="1.5"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
         </div>
         <h3 class="modal-title">{{ deleteTargetType === 'word' ? '删除单词？' : '删除句子？' }}</h3>
         <p class="modal-body">
-          此操作<span style="color:#c94a4a;font-weight:600">不可撤销</span>。
+          此操作<span style="color:#ff3b30;font-weight:600">不可撤销</span>。
           <template v-if="deleteTargetType === 'word'">
             将从题库和错题本中删除此题。
           </template>
@@ -790,53 +760,53 @@ const pageTitle = computed(() => {
 
 <style scoped>
 /* ====== 全局 ====== */
-.practice-engine { height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; background: #fef9f4 }
+.practice-engine { height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; background: transparent }
 
 /* ====== 顶栏 ====== */
-.topbar { display: flex; align-items: center; padding: 0 24px; height: 56px; background: rgba(255, 255, 255, .78); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-bottom: 1px solid rgba(184, 160, 151, .15); flex-shrink: 0; z-index: 10 }
+.topbar { display: flex; align-items: center; padding: 0 24px; height: 56px; background: rgba(255, 255, 255, .78); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-bottom: 1px solid rgba(0, 0, 0, .15); flex-shrink: 0; z-index: 10 }
 .logo-link { text-decoration: none }
-.logo-icon { width: 34px; height: 34px; background: #e8734a; color: #fff; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700 }
-.page-title { font-size: 17px; font-weight: 600; color: #2d2422; margin-left: 10px }
+.logo-icon { width: 34px; height: 34px; background: #ff7a50; color: #fff; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700 }
+.page-title { font-size: 17px; font-weight: 600; color: #1d1d1f; margin-left: 10px }
 .xp-bar { display: flex; align-items: center; gap: 6px; margin-right: 2px }
-.xp-label { font-size: 14px; font-weight: 600; color: #e8734a; white-space: nowrap }
-.logout-btn { margin-left: 14px; padding: 6px 14px; border: 1px solid rgba(184, 160, 151, .18); border-radius: 8px; background: rgba(255, 255, 255, .5); color: #b8a097; font-size: 13px; cursor: pointer; transition: all .15s; font-family: inherit }
-.logout-btn:hover { border-color: #c94a4a; color: #c94a4a }
+.xp-label { font-size: 14px; font-weight: 600; color: #ff7a50; white-space: nowrap }
+.logout-btn { margin-left: 14px; padding: 6px 14px; border: 1px solid rgba(0, 0, 0, .18); border-radius: 8px; background: rgba(255, 255, 255, .5); color: #86868b; font-size: 13px; cursor: pointer; transition: all .15s; font-family: inherit }
+.logout-btn:hover { border-color: #ff3b30; color: #ff3b30 }
 
 /* ====== 加载 ====== */
-.center-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #b8a097; gap: 16px }
-.loader { width: 28px; height: 28px; border: 2px solid rgba(184, 160, 151, .18); border-top-color: #e8734a; border-radius: 50%; animation: spin .7s linear infinite }
+.center-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #86868b; gap: 16px }
+.loader { width: 28px; height: 28px; border: 2px solid rgba(0, 0, 0, .18); border-top-color: #ff7a50; border-radius: 50%; animation: spin .7s linear infinite }
 @keyframes spin { to { transform: rotate(360deg) } }
 
 /* ====== 结果面板 ====== */
 .result-panel { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 48px 24px }
 .result-icon-wrap { width: 60px; height: 60px; background: #fef3ee; border-radius: 14px; display: flex; align-items: center; justify-content: center }
-.result-panel h2 { font-size: 26px; font-weight: 700; color: #2d2422; margin: 0 }
-.result-meta { font-size: 17px; color: #b8a097; margin: 0 }
-.result-big-num { font-size: 72px; font-weight: 800; color: #e8734a; line-height: 1 }
+.result-panel h2 { font-size: 26px; font-weight: 700; color: #1d1d1f; margin: 0 }
+.result-meta { font-size: 17px; color: #86868b; margin: 0 }
+.result-big-num { font-size: 72px; font-weight: 800; color: #ff7a50; line-height: 1 }
 .result-words { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; max-width: 560px }
 .rw-chip { padding: 8px 18px; border-radius: 10px; font-size: 17px; font-weight: 500 }
-.rw-ok { background: #f3f9f3; color: #5b9a5e }
-.rw-err { background: #fdf0f0; color: #c94a4a }
+.rw-ok { background: #f2fff4; color: #34c759 }
+.rw-err { background: #fff0ef; color: #ff3b30 }
 .result-actions { display: flex; gap: 10px; margin-top: 8px; flex-wrap: wrap; justify-content: center }
-.countdown-hint { font-size: 15px; color: #e8734a; font-weight: 600; animation: pulse 1s ease-in-out infinite }
+.countdown-hint { font-size: 15px; color: #ff7a50; font-weight: 600; animation: pulse 1s ease-in-out infinite }
 @keyframes pulse { 0%, 100% { opacity: 1 } 50% { opacity: .5 } }
-.retry-btn { margin-top: 8px; padding: 13px 44px; background: #e8734a; color: #fff; border: none; border-radius: 12px; font-size: 18px; font-weight: 600; cursor: pointer; transition: all .15s; font-family: inherit }
-.retry-btn:hover { background: #d4653a; transform: translateY(-1px) }
-.retry-btn.secondary { padding: 13px 36px; background: #5b9a5e; font-size: 16px }
-.retry-btn.secondary:hover { background: #4a8a4e }
-.retry-btn.outline { padding: 13px 36px; background: #fff; color: #c9782d; border: 2px solid rgba(232, 164, 74, .35); font-size: 16px }
-.retry-btn.outline:hover { background: #fef9f0; border-color: #e8734a; transform: translateY(-1px) }
+.retry-btn { margin-top: 8px; padding: 13px 44px; background: #ff7a50; color: #fff; border: none; border-radius: 12px; font-size: 18px; font-weight: 600; cursor: pointer; transition: all .15s; font-family: inherit }
+.retry-btn:hover { background: #ff5722; transform: translateY(-1px) }
+.retry-btn.secondary { padding: 13px 36px; background: #34c759; font-size: 16px }
+.retry-btn.secondary:hover { background: #2ea043 }
+.retry-btn.outline { padding: 13px 36px; background: #fff; color: #ff9500; border: 2px solid rgba(232, 164, 74, .35); font-size: 16px }
+.retry-btn.outline:hover { background: #fef9f0; border-color: #ff7a50; transform: translateY(-1px) }
 
 /* ====== 主体内容区 ====== */
-.main-content, .card { flex: 1; display: flex; flex-direction: column; overflow-y: auto; padding: 80px 28px 28px; max-width: 80%; margin: 0 auto; width: 100% }
+.main-content, .card { flex: 1; display: flex; flex-direction: column; overflow-y: auto; padding: 32px 28px 28px; max-width: 960px; margin: 0 auto; width: 100% }
 
 /* —— 顶部 —— */
 .top-zone { flex-shrink: 0; padding-top: 20px; max-width: 720px; width: 100%; margin: 0 auto }
-.progress-bar { width: 100%; height: 3px; background: rgba(184, 160, 151, .15); border-radius: 2px; overflow: hidden }
-.progress-fill { height: 100%; background: #e8734a; border-radius: 2px; transition: width .4s ease }
+.progress-bar { width: 100%; height: 3px; background: rgba(0, 0, 0, .15); border-radius: 2px; overflow: hidden }
+.progress-fill { height: 100%; background: #ff7a50; border-radius: 2px; transition: width .4s ease }
 .progress-row, .card-top-row { display: flex; align-items: center; justify-content: space-between; margin-top: 10px }
-.counter { font-size: 16px; color: #b8a097; font-weight: 500 }
-.attempts-badge { font-size: 13px; color: #c94a4a; font-weight: 600; text-align: center; margin-top: 10px }
+.counter { font-size: 16px; color: #86868b; font-weight: 500 }
+.attempts-badge { font-size: 13px; color: #ff3b30; font-weight: 600; text-align: center; margin-top: 10px }
 .progress-actions, .top-actions { display: flex; gap: 6px; align-items: center }
 
 /* ── 工具栏按钮 ── */
@@ -844,43 +814,43 @@ const pageTitle = computed(() => {
   display: inline-flex; align-items: center; gap: 5px;
   padding: 6px 14px; border-radius: 10px; font-size: 13px; font-weight: 600;
   font-family: inherit; cursor: pointer; transition: all .2s ease;
-  border: 1px solid rgba(184,160,151,.15);
-  color: #8b7b74;
-  box-shadow: 0 1px 2px rgba(184,160,151,.08);
+  border: 1px solid rgba(0, 0, 0, .15);
+  color: #6e6e73;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, .08);
   user-select: none;
 }
 .tool-btn svg { flex-shrink: 0; transition: transform .2s ease }
 .tool-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 4px 14px rgba(184,160,151,.18);
-  border-color: rgba(184,160,151,.28);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, .18);
+  border-color: rgba(0, 0, 0, .28);
 }
-.tool-btn:active { transform: translateY(0) scale(.97); box-shadow: 0 1px 2px rgba(184,160,151,.06); transition: transform .06s ease }
-.tool-btn:disabled { opacity: .4; cursor: not-allowed; transform: none; box-shadow: 0 1px 2px rgba(184,160,151,.08) }
+.tool-btn:active { transform: translateY(0) scale(.97); box-shadow: 0 1px 2px rgba(0, 0, 0, .06); transition: transform .06s ease }
+.tool-btn:disabled { opacity: .4; cursor: not-allowed; transform: none; box-shadow: 0 1px 2px rgba(0, 0, 0, .08) }
 
-.tool-btn.hint { background: linear-gradient(180deg, #faf9fe 0%, #f3f0fc 100%); color: #7c6fba }
-.tool-btn.hint:hover { color: #5b4fa6; border-color: rgba(124,111,186,.3); box-shadow: 0 4px 14px rgba(124,111,186,.12) }
+.tool-btn.hint { background: linear-gradient(180deg, #f5f5ff 0%, #f0efff 100%); color: #5856d6 }
+.tool-btn.hint:hover { color: #4340b8; border-color: rgba(124,111,186,.3); box-shadow: 0 4px 14px rgba(124,111,186,.12) }
 .tool-btn.hint:hover svg { transform: rotate(-12deg) }
 
-.tool-btn.speak { background: linear-gradient(180deg, #fefaf7 0%, #fdf3eb 100%); color: #d4906a }
-.tool-btn.speak:hover { color: #c07448; border-color: rgba(196,148,106,.3); box-shadow: 0 4px 14px rgba(196,148,106,.12) }
+.tool-btn.speak { background: linear-gradient(180deg, #fefaf7 0%, #fdf3eb 100%); color: #ff7a50 }
+.tool-btn.speak:hover { color: #ff5722; border-color: rgba(196,148,106,.3); box-shadow: 0 4px 14px rgba(196,148,106,.12) }
 .tool-btn.speak:hover svg { transform: scale(1.15) }
 
-.tool-btn.skip { background: linear-gradient(180deg, #f9fcfa 0%, #eff7f2 100%); color: #7cae8c }
-.tool-btn.skip:hover { color: #5a8a6a; border-color: rgba(124,174,140,.3); box-shadow: 0 4px 14px rgba(124,174,140,.12) }
+.tool-btn.skip { background: linear-gradient(180deg, #f9fcfa 0%, #eff7f2 100%); color: #34c759 }
+.tool-btn.skip:hover { color: #248a3d; border-color: rgba(124,174,140,.3); box-shadow: 0 4px 14px rgba(124,174,140,.12) }
 .tool-btn.skip:hover svg { transform: translateX(2px) }
 
-.tool-btn.delete { background: linear-gradient(180deg, #fefafa 0%, #fdf2f2 100%); color: #c47a7a }
-.tool-btn.delete:hover { color: #a85a5a; border-color: rgba(196,122,122,.3); box-shadow: 0 4px 14px rgba(196,122,122,.12) }
+.tool-btn.delete { background: linear-gradient(180deg, #fefafa 0%, #fdf2f2 100%); color: #ff3b30 }
+.tool-btn.delete:hover { color: #d6281e; border-color: rgba(196,122,122,.3); box-shadow: 0 4px 14px rgba(196,122,122,.12) }
 .tool-btn.delete:hover svg { transform: rotate(90deg) }
 
 .tool-btn.end {
-  color: #d4653a; border-color: rgba(232,115,74,.15);
+  color: #ff5722; border-color: rgba(232,115,74,.15);
   background: linear-gradient(180deg, #fef9f4 0%, #fef3ee 100%);
   box-shadow: 0 1px 3px rgba(232,115,74,.08);
 }
 .tool-btn.end:hover {
-  color: #b33a3a; border-color: rgba(232,115,74,.35);
+  color: #d6281e; border-color: rgba(232,115,74,.35);
   box-shadow: 0 4px 16px rgba(232,115,74,.2);
 }
 .tool-btn.end:hover svg { transform: rotate(90deg) scale(1.1) }
@@ -890,67 +860,67 @@ const pageTitle = computed(() => {
 
 /* Spelling specific */
 .example-banner { max-width: 560px; text-align: center; margin: 0 auto 48px }
-.example-full { font-size: 17px; color: #2d2422; line-height: 1.6; font-style: italic }
-.example-masked { font-size: 17px; color: #2d2422; line-height: 1.6; font-style: italic }
-.example-masked :deep(.ex-blank) { display: inline-flex; gap: 3px; background: rgba(232, 115, 74, .08); border-bottom: 2px solid #e8734a; padding: 0 6px; margin: 0 2px; border-radius: 3px 3px 0 0 }
-.example-masked :deep(.ex-char) { display: inline-block; width: 14px; text-align: center; font-style: normal; font-weight: 600; font-size: 16px; color: #2d2422 }
-.example-masked :deep(.ex-char:not(.filled)) { color: #cbd5e1 }
+.example-full { font-size: 17px; color: #1d1d1f; line-height: 1.6; font-style: italic }
+.example-masked { font-size: 17px; color: #1d1d1f; line-height: 1.6; font-style: italic }
+.example-masked :deep(.ex-blank) { display: inline-flex; gap: 3px; background: rgba(232, 115, 74, .08); border-bottom: 2px solid #ff7a50; padding: 0 6px; margin: 0 2px; border-radius: 3px 3px 0 0 }
+.example-masked :deep(.ex-char) { display: inline-block; width: 14px; text-align: center; font-style: normal; font-weight: 600; font-size: 16px; color: #1d1d1f }
+.example-masked :deep(.ex-char:not(.filled)) { color: #c7c7cc }
 .card-body { text-align: center; max-width: 560px }
-.chinese-word { font-size: 44px; font-weight: 700; color: #2d2422; margin: 0; line-height: 1.3; word-break: break-word }
-.phonetic-text { font-size: 18px; color: #e8734a; margin: 10px 0 0; font-family: Georgia, serif }
-.pos-tag { font-size: 16px; color: #b8a097; margin: 6px 0 0; font-style: italic }
-.hint-text { margin-top: 14px; font-size: 18px; color: #e8734a; background: #fef3ee; display: inline-block; padding: 6px 18px; border-radius: 8px; font-family: 'SF Mono', monospace; letter-spacing: 2px }
-.reveal-answer { margin-top: 14px; font-size: 22px; color: #c94a4a; font-weight: 700; background: #fdf0f0; display: inline-block; padding: 6px 18px; border-radius: 8px }
+.chinese-word { font-size: 44px; font-weight: 700; color: #1d1d1f; margin: 0; line-height: 1.3; word-break: break-word }
+.phonetic-text { font-size: 18px; color: #ff7a50; margin: 10px 0 0; font-family: Georgia, serif }
+.pos-tag { font-size: 16px; color: #86868b; margin: 6px 0 0; font-style: italic }
+.hint-text { margin-top: 14px; font-size: 18px; color: #ff7a50; background: #fef3ee; display: inline-block; padding: 6px 18px; border-radius: 8px; font-family: 'SF Mono', monospace; letter-spacing: 2px }
+.reveal-answer { margin-top: 14px; font-size: 22px; color: #ff3b30; font-weight: 700; background: #fff0ef; display: inline-block; padding: 6px 18px; border-radius: 8px }
 .input-row { display: flex; align-items: flex-end; justify-content: center; gap: 0; margin-top: 36px }
-.answer-input { width: 100%; max-width: 480px; padding: 12px 0; border: none; border-bottom: 2.5px solid rgba(184, 160, 151, .25); font-size: 28px; outline: 0; text-align: center; font-family: inherit; background: transparent; transition: border-color .2s; border-radius: 0; letter-spacing: 1px; box-sizing: border-box; color: #2d2422 }
-.answer-input::placeholder { color: rgba(184, 160, 151, .25) }
-.answer-input:focus { border-bottom-color: #e8734a }
-.answer-input.revealed { border-bottom-color: #f5a5a5; color: #c94a4a }
-.speak-btn { width: 40px; height: 40px; border: none; border-radius: 10px; background: rgba(184, 160, 151, .06); color: #b8a097; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; transition: all .15s; margin-left: 8px }
-.speak-btn:hover { background: rgba(184, 160, 151, .18); color: #4a3d39 }
+.answer-input { width: 100%; max-width: 480px; padding: 12px 0; border: none; border-bottom: 2.5px solid rgba(0, 0, 0, .25); font-size: 28px; outline: 0; text-align: center; font-family: inherit; background: transparent; transition: border-color .2s; border-radius: 0; letter-spacing: 1px; box-sizing: border-box; color: #1d1d1f }
+.answer-input::placeholder { color: rgba(0, 0, 0, .25) }
+.answer-input:focus { border-bottom-color: #ff7a50 }
+.answer-input.revealed { border-bottom-color: #ffaea9; color: #ff3b30 }
+.speak-btn { width: 40px; height: 40px; border: none; border-radius: 10px; background: rgba(0, 0, 0, .06); color: #86868b; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; transition: all .15s; margin-left: 8px }
+.speak-btn:hover { background: rgba(0, 0, 0, .18); color: #1d1d1f }
 .feedback-toast { position: fixed; bottom: 88px; left: 50%; transform: translateX(-50%) translateY(8px); z-index: 200; opacity: 0; transition: all .25s ease; pointer-events: none }
 .feedback-toast.fb-show { opacity: 1; transform: translateX(-50%) translateY(0) }
 .fb-inner { display: flex; align-items: center; gap: 8px; padding: 10px 22px; border-radius: 20px; font-size: 16px; font-weight: 600; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); white-space: nowrap }
-.fb-ok .fb-inner { background: rgba(91, 154, 94, .12); color: #3d7a40; border: 1px solid rgba(91, 154, 94, .2) }
-.fb-err .fb-inner { background: rgba(201, 74, 74, .1); color: #b33a3a; border: 1px solid rgba(201, 74, 74, .18) }
-.fb-hint .fb-inner { background: rgba(232, 164, 74, .1); color: #c9782d; border: 1px solid rgba(232, 164, 74, .2) }
+.fb-ok .fb-inner { background: rgba(91, 154, 94, .12); color: #248a3d; border: 1px solid rgba(91, 154, 94, .2) }
+.fb-err .fb-inner { background: rgba(201, 74, 74, .1); color: #d6281e; border: 1px solid rgba(201, 74, 74, .18) }
+.fb-hint .fb-inner { background: rgba(232, 164, 74, .1); color: #ff9500; border: 1px solid rgba(232, 164, 74, .2) }
 
 /* Sentence specific */
 .chinese-area { padding: 0 0 16px; text-align: center; max-width: 700px; margin: 0 auto }
-.chinese-text { font-size: 26px; font-weight: 600; color: #2d2422; line-height: 1.7; margin: 0; word-break: break-word; overflow-wrap: break-word }
+.chinese-text { font-size: 26px; font-weight: 600; color: #1d1d1f; line-height: 1.7; margin: 0; word-break: break-word; overflow-wrap: break-word }
 .slots-area { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: flex-start; padding: 0 0 8px; max-width: 700px; margin: 0 auto }
 .slot-item { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px }
 .slots-line { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; line-height: 2.6; padding: 0 0 8px }
-.vis-word { font-size: 19px; color: #4a3d39; font-weight: 500; padding: 0 4px; cursor: default }
-.punct-mark { font-size: 19px; color: #b8a097; padding: 0 1px; user-select: none }
+.vis-word { font-size: 19px; color: #1d1d1f; font-weight: 500; padding: 0 4px; cursor: default }
+.punct-mark { font-size: 19px; color: #86868b; padding: 0 1px; user-select: none }
 .slot-wrapper, .vis-word { position: relative }
-.hint-above { font-size: 14px; color: #e8734a; font-family: monospace; letter-spacing: 2px; text-align: center; margin-bottom: 4px; background: #fef3ee; border-radius: 6px; padding: 2px 8px; white-space: nowrap; line-height: 1.4 }
-.slot-input { padding: 10px 16px; border: 2px solid rgba(184, 160, 151, .18); border-radius: 10px; font-size: 19px; text-align: center; outline: 0; transition: all .15s; font-family: inherit; min-width: 56px; background: #fff; color: #2d2422 }
-.slot-input:focus { border-color: #e8734a }
-.slot-input.correct { border-color: #5b9a5e !important; background: #f3f9f3 !important; color: #5b9a5e !important; font-weight: 600; cursor: default }
-.slot-input.retry { border-color: #e8a44a !important; background: #fef9f0 !important; color: #c9782d !important }
+.hint-above { font-size: 14px; color: #ff7a50; font-family: monospace; letter-spacing: 2px; text-align: center; margin-bottom: 4px; background: #fef3ee; border-radius: 6px; padding: 2px 8px; white-space: nowrap; line-height: 1.4 }
+.slot-input { padding: 10px 16px; border: 2px solid rgba(0, 0, 0, .18); border-radius: 10px; font-size: 19px; text-align: center; outline: 0; transition: all .15s; font-family: inherit; min-width: 56px; background: #fff; color: #1d1d1f }
+.slot-input:focus { border-color: #ff7a50 }
+.slot-input.correct { border-color: #34c759 !important; background: #f2fff4 !important; color: #34c759 !important; font-weight: 600; cursor: default }
+.slot-input.retry { border-color: #ff9500 !important; background: #fef9f0 !important; color: #ff9500 !important }
 .slot-item.shaking .slot-input { animation: shakeRed .5s ease }
 .slot-input.shaking { animation: shakeRed .5s ease }
-@keyframes shakeRed { 0%, 100% { border-color: rgba(184, 160, 151, .18) } 10%, 50%, 90% { border-color: #c94a4a; background: #fdf0f0 } }
+@keyframes shakeRed { 0%, 100% { border-color: rgba(0, 0, 0, .18) } 10%, 50%, 90% { border-color: #ff3b30; background: #fff0ef } }
 
 /* Hover word card */
-.hover-word-card { position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); z-index: 200; background: #fff; color: #2d2422; padding: 12px 18px; border-radius: 12px; min-width: 180px; max-width: 320px; pointer-events: none; box-shadow: 0 12px 32px rgba(0, 0, 0, .1), 0 0 0 1px rgba(0, 0, 0, .04); animation: hoverCardIn .2s ease-out }
+.hover-word-card { position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); z-index: 200; background: #fff; color: #1d1d1f; padding: 12px 18px; border-radius: 12px; min-width: 180px; max-width: 320px; pointer-events: none; box-shadow: 0 12px 32px rgba(0, 0, 0, .1), 0 0 0 1px rgba(0, 0, 0, .04); animation: hoverCardIn .2s ease-out }
 .hover-word-card::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 7px solid transparent; border-top-color: #fff }
 @keyframes hoverCardIn { 0% { opacity: 0; transform: translateX(-50%) translateY(6px) scale(.94) } 100% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1) } }
 .hw-top { display: flex; align-items: center; gap: 6px; margin-bottom: 2px }
-.hw-word { font-weight: 700; color: #2d2422; font-size: 17px; word-break: break-word }
-.hw-pos { font-size: 13px; color: #b8a097; white-space: nowrap }
-.hw-phonetic { color: #e8734a; font-style: italic; font-size: 14px; margin-bottom: 2px; word-break: break-word }
-.hw-loading { color: #b8a097; font-size: 12px }
-.hw-trans { color: #5b9a5e; font-weight: 600; font-size: 16px; word-break: break-word }
+.hw-word { font-weight: 700; color: #1d1d1f; font-size: 17px; word-break: break-word }
+.hw-pos { font-size: 13px; color: #86868b; white-space: nowrap }
+.hw-phonetic { color: #ff7a50; font-style: italic; font-size: 14px; margin-bottom: 2px; word-break: break-word }
+.hw-loading { color: #86868b; font-size: 12px }
+.hw-trans { color: #34c759; font-weight: 600; font-size: 16px; word-break: break-word }
 
 /* —— 底部 —— */
 .bottom-zone { flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: 28px; padding: 14px 0 18px }
-.si-label { font-size: 13px; font-weight: 600; color: #b8a097; text-transform: uppercase; letter-spacing: 1.5px; flex-shrink: 0 }
+.si-label { font-size: 13px; font-weight: 600; color: #86868b; text-transform: uppercase; letter-spacing: 1.5px; flex-shrink: 0 }
 .si-items { display: flex; align-items: center; gap: 24px }
 .si-item { display: inline-flex; align-items: center; gap: 4px }
-.si-item kbd { display: inline-block; padding: 2px 8px; border: 1px solid rgba(184, 160, 151, .18); border-radius: 4px; background: rgba(184, 160, 151, .08); font-size: 13px; font-family: inherit; color: #b8a097; font-weight: 500; white-space: nowrap }
-.si-item span { font-size: 13px; color: #b8a097 }
+.si-item kbd { display: inline-block; padding: 2px 8px; border: 1px solid rgba(0, 0, 0, .18); border-radius: 4px; background: rgba(0, 0, 0, .08); font-size: 13px; font-family: inherit; color: #86868b; font-weight: 500; white-space: nowrap }
+.si-item span { font-size: 13px; color: #86868b }
 
 /* ====== 响应式 ====== */
 @media (max-width: 768px) {
@@ -977,14 +947,14 @@ const pageTitle = computed(() => {
 .modal-overlay { position: fixed; inset: 0; z-index: 1000; background: rgba(0,0,0,.35); backdrop-filter: blur(4px); display: flex; align-items: center; justify-content: center; animation: fadeIn .2s ease }
 .modal-card { background: #fff; border-radius: 20px; padding: 36px 40px 28px; max-width: 380px; width: 90%; text-align: center; box-shadow: 0 16px 48px rgba(0,0,0,.12); animation: scaleIn .25s ease }
 .modal-icon { margin-bottom: 14px }
-.modal-title { font-size: 18px; font-weight: 700; color: #2d2422; margin: 0 0 8px }
-.modal-body { font-size: 14px; color: #8b7b74; line-height: 1.6; margin: 0 0 24px }
+.modal-title { font-size: 18px; font-weight: 700; color: #1d1d1f; margin: 0 0 8px }
+.modal-body { font-size: 14px; color: #6e6e73; line-height: 1.6; margin: 0 0 24px }
 .modal-actions { display: flex; gap: 12px; justify-content: center }
 .modal-btn { padding: 10px 32px; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; border: none; font-family: inherit; transition: all .15s }
-.modal-btn.cancel { background: rgba(184,160,151,.08); color: #8b7b74 }
-.modal-btn.cancel:hover { background: rgba(184,160,151,.15); color: #2d2422 }
-.modal-btn.confirm { background: #c94a4a; color: #fff; box-shadow: 0 2px 8px rgba(201,74,74,.25) }
-.modal-btn.confirm:hover { background: #b33a3a; transform: translateY(-1px); box-shadow: 0 4px 14px rgba(201,74,74,.35) }
+.modal-btn.cancel { background: rgba(0, 0, 0, .08); color: #6e6e73 }
+.modal-btn.cancel:hover { background: rgba(0, 0, 0, .15); color: #1d1d1f }
+.modal-btn.confirm { background: #ff3b30; color: #fff; box-shadow: 0 2px 8px rgba(201,74,74,.25) }
+.modal-btn.confirm:hover { background: #d6281e; transform: translateY(-1px); box-shadow: 0 4px 14px rgba(201,74,74,.35) }
 @keyframes fadeIn { 0%{opacity:0} 100%{opacity:1} }
 @keyframes scaleIn { 0%{opacity:0;transform:scale(.92)} 100%{opacity:1;transform:scale(1)} }
 </style>

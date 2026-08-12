@@ -1,4 +1,4 @@
-import { ref, computed } from 'vue'
+import { computed } from 'vue'
 import { useAuthStore } from '../stores/auth'
 import api from '../api'
 
