@@ -269,7 +269,7 @@ onMounted(async () => {
 .page-title{margin-left:12px;font-size:15px;font-weight:600;color:#1d1d1f}
 .count-tag{margin-left:10px;font-size:12px;color:#ff3b30;background:rgba(254,226,226,.5);padding:2px 10px;border-radius:10px;font-weight:600}
 .back-link{font-size:14px;color:#86868b;text-decoration:none;transition:color .15s;font-weight:500;margin-left:20px}.back-link:hover{color:#ff7a50}
-.main-area{max-width:1200px;margin:0 auto;padding:32px 48px 32px;display:flex;flex-direction:column;height:calc(100vh - 80px);overflow:hidden;gap:20px}
+.main-area{max-width:1200px;margin:0 auto;padding:32px 48px 32px;display:flex;flex-direction:column;height:calc(100vh - 120px);overflow:hidden;gap:20px}
 .list-shell{flex:1;min-height:0;display:flex;flex-direction:column;gap:14px}
 .scroll-body{flex:1;min-height:0;overflow-y:auto;padding-right:8px;margin-right:-8px}
 
