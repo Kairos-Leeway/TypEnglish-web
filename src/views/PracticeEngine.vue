@@ -139,7 +139,7 @@ interface WordDetail {
   found: boolean; word: string; phonetic?: string; translation?: string; partOfSpeech?: string; example?: string
 }
 interface SentenceResult {
-  sentenceId?: number
+  sentenceId?: string | number
   english: string
   chinese: string
   correct: boolean
@@ -222,10 +222,11 @@ function buildSentenceSlotsSnapshot(): SentenceResult['slots'] {
 function recordCurrentSentence(correct: boolean) {
   const sent = sentences.value[currentIndex.value]
   if (!sent) return
-  const already = sentenceResults.value.find((r) => r.sentenceId === (sent.id || currentIndex.value))
+  const key = `idx-${currentIndex.value}`
+  const already = sentenceResults.value.find((r) => r.sentenceId === key)
   if (already) return
   sentenceResults.value.push({
-    sentenceId: sent.id || currentIndex.value,
+    sentenceId: key,
     english: sent.english,
     chinese: sent.chinese,
     correct,
@@ -370,7 +371,6 @@ function skipSentence() {
 
 function nextItem() {
   if (isSentenceMode.value) {
-    recordCurrentSentence(false)
     if (currentIndex.value < sentences.value.length - 1) {
       currentIndex.value++; initSlots(sentences.value[currentIndex.value].words)
     } else { endSession(true) }

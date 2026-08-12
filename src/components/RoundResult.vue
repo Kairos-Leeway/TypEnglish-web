@@ -9,7 +9,7 @@ interface SpellingResult {
 }
 
 interface SentenceResult {
-  sentenceId?: number
+  sentenceId?: string | number
   english: string
   chinese: string
   correct: boolean

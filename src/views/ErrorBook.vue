@@ -151,8 +151,8 @@ onMounted(async () => {
         </div>
       </div>
 
-      <!-- ========= 单词错题列表 ========= -->
-      <template v-if="activeTab==='word' && wordErrors.length>0">
+      <!-- 单词错题列表 -->
+      <div v-if="activeTab==='word' && wordErrors.length>0" class="list-shell">
         <div class="list-toolbar">
           <span class="list-info">第 {{wordPage}} 页 · 共 {{wordTotal}} 词</span>
           <div style="display:flex;gap:10px">
@@ -160,20 +160,22 @@ onMounted(async () => {
             <button class="action-btn primary" @click="startWordPractice">拼写练习 ({{Math.min(30,wordErrors.length)}}个)</button>
           </div>
         </div>
-        <div class="word-list">
-          <div v-for="item in wordErrors" :key="item.id" class="word-card">
-            <div class="word-main">
-              <div class="word-title">
-                <span class="ww-word">{{item.word.word}}</span>
-                <span v-if="item.word.phonetic" class="ww-phonetic">{{item.word.phonetic}}</span>
+        <div class="scroll-body">
+          <div class="word-list">
+            <div v-for="item in wordErrors" :key="item.id" class="word-card">
+              <div class="word-main">
+                <div class="word-title">
+                  <span class="ww-word">{{item.word.word}}</span>
+                  <span v-if="item.word.phonetic" class="ww-phonetic">{{item.word.phonetic}}</span>
+                </div>
+                <div class="ww-trans">{{item.word.translation}}</div>
               </div>
-              <div class="ww-trans">{{item.word.translation}}</div>
-            </div>
-            <div class="word-meta">
-              <span :class="['ww-err',{many:item.errorCount>=3}]">错 {{item.errorCount}} 次</span>
-              <button class="ww-speak" @click="speak(item.word.word)" title="听发音">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
-              </button>
+              <div class="word-meta">
+                <span :class="['ww-err',{many:item.errorCount>=3}]">错 {{item.errorCount}} 次</span>
+                <button class="ww-speak" @click="speak(item.word.word)" title="听发音">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -186,11 +188,10 @@ onMounted(async () => {
           </template>
           <button :disabled="wordPage>=totalWordPages" @click="wordPage++;loadWordErrors()">›</button>
         </div>
-      </template>
+      </div>
 
-
-      <!-- ========= 句子错题列表 ========= -->
-      <template v-if="activeTab==='sentence' && sentenceErrors.length>0">
+      <!-- 句子错题列表 -->
+      <div v-if="activeTab==='sentence' && sentenceErrors.length>0" class="list-shell">
         <div class="list-toolbar">
           <span class="list-info">第 {{sentPage}} 页 · 共 {{sentTotal}} 句</span>
           <div style="display:flex;gap:10px">
@@ -198,19 +199,21 @@ onMounted(async () => {
             <button class="action-btn primary" @click="startSentenceBatchPractice">批量练习 (抽{{Math.max(10,sentenceErrors.length)}}句)</button>
           </div>
         </div>
-        <div class="sentence-grid">
-          <div v-for="se in sentenceErrors" :key="se.id" class="sentence-tile">
-            <div class="st-header">
-              <span :class="['st-badge',se.mode==='cloze'?'bd-cloze':'bd-trans']">{{se.mode==='cloze'?'完形填空':'句子翻译'}}</span>
-              <span class="st-meta">{{se.correctSlots}}/{{se.totalSlots}} 正确 · {{se.createdAt?.substring(0,10)}}</span>
+        <div class="scroll-body">
+          <div class="sentence-grid">
+            <div v-for="se in sentenceErrors" :key="se.id" class="sentence-tile">
+              <div class="st-header">
+                <span :class="['st-badge',se.mode==='cloze'?'bd-cloze':'bd-trans']">{{se.mode==='cloze'?'完形填空':'句子翻译'}}</span>
+                <span class="st-meta">{{se.correctSlots}}/{{se.totalSlots}} 正确 · {{se.createdAt?.substring(0,10)}}</span>
+              </div>
+              <p class="st-chinese">{{se.chinese}}</p>
+              <div class="st-slots">
+                <span v-for="(s,i) in se.slots" :key="i" :class="['st-slot', s.visible?'st-vis':(s.correct?'st-ok':'st-err')]" :title="s.visible?'':(s.correct?'填对':'填错/未填')">
+                  {{s.word}}<span v-if="!s.visible&&!s.correct&&s.answer" class="st-answer">→{{s.answer}}</span>
+                </span>
+              </div>
+              <button class="st-repractice" @click="startSentenceRepractice(se)">↻ 重新练习</button>
             </div>
-            <p class="st-chinese">{{se.chinese}}</p>
-            <div class="st-slots">
-              <span v-for="(s,i) in se.slots" :key="i" :class="['st-slot', s.visible?'st-vis':(s.correct?'st-ok':'st-err')]" :title="s.visible?'':(s.correct?'填对':'填错/未填')">
-                {{s.word}}<span v-if="!s.visible&&!s.correct&&s.answer" class="st-answer">→{{s.answer}}</span>
-              </span>
-            </div>
-            <button class="st-repractice" @click="startSentenceRepractice(se)">↻ 重新练习</button>
           </div>
         </div>
         <div v-if="totalSentPages>1" class="pagination">
@@ -222,7 +225,7 @@ onMounted(async () => {
           </template>
           <button :disabled="sentPage>=totalSentPages" @click="sentPage++;loadSentenceErrors()">›</button>
         </div>
-      </template>
+      </div>
 
       <!-- ===== 清空二次确认弹窗 ===== -->
       <div v-if="clearConfirm.visible" class="modal-overlay" @click.self="hideClearConfirm()">
@@ -266,7 +269,9 @@ onMounted(async () => {
 .page-title{margin-left:12px;font-size:15px;font-weight:600;color:#1d1d1f}
 .count-tag{margin-left:10px;font-size:12px;color:#ff3b30;background:rgba(254,226,226,.5);padding:2px 10px;border-radius:10px;font-weight:600}
 .back-link{font-size:14px;color:#86868b;text-decoration:none;transition:color .15s;font-weight:500;margin-left:20px}.back-link:hover{color:#ff7a50}
-.main-area{max-width:1200px;margin:0 auto;padding:40px 48px 80px}
+.main-area{max-width:1200px;margin:0 auto;padding:32px 48px 32px;display:flex;flex-direction:column;height:calc(100vh - 80px);overflow:hidden;gap:20px}
+.list-shell{flex:1;min-height:0;display:flex;flex-direction:column;gap:14px}
+.scroll-body{flex:1;min-height:0;overflow-y:auto;padding-right:8px;margin-right:-8px}
 
 /* 空状态 */
 .empty-state{text-align:center;padding:100px 0}
@@ -287,7 +292,7 @@ onMounted(async () => {
 .cat-card:hover .cat-arrow,.cat-card.active .cat-arrow{color:#ff7a50;transform:translateX(4px)}
 
 /* 列表工具栏 */
-.list-toolbar{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px}
+.list-toolbar{display:flex;justify-content:space-between;align-items:center}
 .list-info{font-size:13px;color:#86868b}
 .action-btn{padding:9px 22px;border:none;border-radius:10px;font-size:14px;font-weight:600;cursor:pointer;transition:all .15s}
 .action-btn.primary{background:#ff7a50;color:#fff;box-shadow:0 4px 12px rgba(232,115,74,.2)}
@@ -330,7 +335,7 @@ onMounted(async () => {
 .st-repractice:hover{background:rgba(255,122,80,.1);border-color:#ff7a50;color:#ff7a50;transform:translateY(-1px)}
 
 /* 分页 */
-.pagination{display:flex;align-items:center;justify-content:center;gap:8px;margin-top:24px}
+.pagination{display:flex;align-items:center;justify-content:center;gap:8px}
 .pagination button{width:36px;height:36px;border:1px solid rgba(255,255,255,.65);border-radius:10px;background:rgba(255,255,255,.78);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);color:#1d1d1f;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;box-shadow:0 4px 12px rgba(0, 0, 0, .05),inset 0 0 0 1px rgba(255,255,255,.5)}
 .pagination button:hover:not(:disabled){border-color:rgba(232,115,74,.4);color:#ff7a50;background:#fff}
 .pagination button:disabled{opacity:.35;cursor:not-allowed}
