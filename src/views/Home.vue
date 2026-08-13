@@ -167,9 +167,9 @@ onMounted(async () => {
 }
 
 .main-content {
-  max-width: 1120px;
+  width: min(1320px, calc(100% - 44px));
   margin: 0 auto;
-  padding: 40px 32px 80px;
+  padding: 40px 0 80px;
 }
 
 .greeting {
@@ -388,7 +388,7 @@ onMounted(async () => {
   .chapter-grid { grid-template-columns: repeat(3, 1fr); }
 }
 @media (max-width: 768px) {
-  .main-content { padding: 28px 20px 60px; }
+  .main-content { width: calc(100% - 16px); padding: 28px 0 60px; }
   .greeting h1 { font-size: 30px; }
   .stats-row,
   .mode-grid { grid-template-columns: 1fr; }

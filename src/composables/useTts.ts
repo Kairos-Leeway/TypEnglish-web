@@ -1,11 +1,10 @@
+import axios from 'axios'
+import { ref } from 'vue'
+import api from '../api'
+
 /**
  * TTS 朗读工具
- * 策略：Web Speech API 为主 (零延迟)，Edge TTS 为辅 (备选)
- *
- * 为什么主推 Web Speech？
- * - 零网络延迟，第一个字不会卡
- * - Chrome 的 Google 语音质量已经很好
- * - rate=0.85 语速接近真人口语
+ * 策略：后端神经语音为主，Web Speech API 仅作为离线兜底。
  *
  * 关键修复：
  * - 延迟第一次 speak 直到 audio 引擎就绪
@@ -13,27 +12,44 @@
  */
 let audioEl: HTMLAudioElement | null = null
 let ttsReady = false
+let requestController: AbortController | null = null
+let activeRequestKey = ''
+let activeRequest: Promise<void> | null = null
+
+export const isTtsLoading = ref(false)
 
 /** 预初始化：提前加载 Edge 音频流到浏览器缓存 */
 export function prewarmTts() {
-  // 轻量预加载 — 用 "hello" 触发一次沉寂播放
-  const dummy = new Audio()
-  dummy.src = '/api/tts?text=hello&lang=en-US'
-  dummy.volume = 0
-  dummy.play().then(() => {
-    dummy.pause()
-    ttsReady = true
-  }).catch(() => {
-    ttsReady = true // 即使失败也不要阻塞
-  })
+  // 预热也必须通过统一 API 客户端，以便自动携带 JWT。
+  void api.get('/tts', {
+    params: { text: 'hello', lang: 'en-US' },
+    responseType: 'blob',
+  }).finally(() => { ttsReady = true })
 }
 
-export function speak(text: string, lang = 'en-US') {
-  // 主方案: Web Speech API (Chrome/Safari 原生，零延迟)
-  if (speakWebSpeech(text, lang)) return
+export function speak(text: string, lang = 'en-US'): Promise<void> {
+  const normalized = text?.trim()
+  if (!normalized) return Promise.resolve()
 
-  // 备选: Edge TTS 后端代理
-  fetchTts(text, lang)
+  const requestKey = `${lang}\n${normalized}`
+  // Repeated clicks on the same sentence share one request instead of restarting it.
+  if (activeRequest && activeRequestKey === requestKey) return activeRequest
+
+  requestController?.abort()
+  requestController = new AbortController()
+  activeRequestKey = requestKey
+  isTtsLoading.value = true
+
+  // 音色在服务端固定，所有浏览器听到的效果一致；失败时再降级到系统语音。
+  const task = fetchTts(normalized, lang, requestController.signal).finally(() => {
+    if (activeRequest === task) {
+      activeRequest = null
+      activeRequestKey = ''
+      isTtsLoading.value = false
+    }
+  })
+  activeRequest = task
+  return task
 }
 
 /**
@@ -74,7 +90,8 @@ function doSpeakWeb(text: string, lang: string) {
 
   const u = new SpeechSynthesisUtterance(text)
   u.lang = lang
-  u.rate = 0.85
+  u.rate = 0.72
+  u.pitch = 1
   u.volume = 1
 
   // 选最佳英语语音
@@ -97,9 +114,16 @@ function doSpeakWeb(text: string, lang: string) {
   synth.speak(u)
 }
 
-async function fetchTts(text: string, lang: string) {
+async function fetchTts(text: string, lang: string, signal: AbortSignal) {
   try {
-    const url = `/api/tts?text=${encodeURIComponent(text)}&lang=${encodeURIComponent(lang)}`
+    const response = await api.get<Blob>('/tts', {
+      params: { text, lang },
+      responseType: 'blob',
+      signal,
+    })
+    const audioBlob = response.data
+    if (!audioBlob.type.startsWith('audio/')) throw new Error('TTS response is not audio')
+
     if (!audioEl) {
       audioEl = new Audio()
       audioEl.preload = 'auto'
@@ -109,7 +133,9 @@ async function fetchTts(text: string, lang: string) {
     audioEl.pause()
     audioEl.currentTime = 0
 
-    audioEl.src = url
+    const previousUrl = audioEl.src
+    const objectUrl = URL.createObjectURL(audioBlob)
+    audioEl.src = objectUrl
 
     // canplay 事件触发 = 音频头已就绪，可以无延迟播出
     await new Promise<void>((resolve, reject) => {
@@ -137,7 +163,9 @@ async function fetchTts(text: string, lang: string) {
     })
 
     await audioEl.play()
-  } catch {
+    if (previousUrl.startsWith('blob:')) URL.revokeObjectURL(previousUrl)
+  } catch (error) {
+    if (axios.isCancel(error) || (error instanceof DOMException && error.name === 'AbortError')) return
     // 最终降级：Web Speech
     speakWebSpeech(text, lang)
   }

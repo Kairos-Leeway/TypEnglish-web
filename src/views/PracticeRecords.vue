@@ -255,7 +255,7 @@ onUnmounted(() => { if (listRef.value) listRef.value.removeEventListener('scroll
 
 <style scoped>
 .records-page { min-height: 100vh; background: transparent }
-.main-area { max-width: 900px; margin: 0 auto; padding: 40px 32px 80px }
+.main-area { width: min(1320px, calc(100% - 44px)); margin: 0 auto; padding: 36px 0 80px }
 
 /* 总览 */
 .overview-row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin-bottom: 36px }
@@ -273,7 +273,7 @@ onUnmounted(() => { if (listRef.value) listRef.value.removeEventListener('scroll
 .heat-grid { display: grid; grid-template-rows: repeat(7, 1fr); grid-auto-flow: column; gap: 3px; flex: 1 }
 /* 热力图格子 —— 水位填充 + 发光（档位越高越亮） */
 .heat-cell {
-  width: 14px; height: 14px; border-radius: 3px; cursor: pointer; flex-shrink: 0;
+  width: clamp(12px, 1.05vw, 16px); height: clamp(12px, 1.05vw, 16px); border-radius: 3px; cursor: pointer; flex-shrink: 0;
   position: relative; overflow: hidden;
   background: #f0ece9;
   transition: transform .15s ease, box-shadow .15s ease;
@@ -333,7 +333,7 @@ onUnmounted(() => { if (listRef.value) listRef.value.removeEventListener('scroll
 @keyframes ttIn { 0% { opacity: 0; transform: translate(-50%, calc(-100% + 4px)) } 100% { opacity: 1; transform: translate(-50%, -100%) } }
 
 /* 滚动列表 */
-.records-scroll { height: 400px; overflow-y: auto; background: rgba(255,255,255,.78); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-radius: 20px; border: 1px solid rgba(255,255,255,.65); padding: 10px 16px; box-shadow: 0 12px 36px rgba(184,160,151,.07), 0 4px 12px rgba(184,160,151,.04), inset 0 0 0 1px rgba(255,255,255,.5) }
+.records-scroll { height: 460px; overflow-y: auto; background: rgba(255,255,255,.78); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-radius: 20px; border: 1px solid rgba(255,255,255,.65); padding: 10px 20px; box-shadow: 0 12px 36px rgba(184,160,151,.07), 0 4px 12px rgba(184,160,151,.04), inset 0 0 0 1px rgba(255,255,255,.5) }
 .records-scroll::-webkit-scrollbar { width: 5px }
 .records-scroll::-webkit-scrollbar-thumb { background: rgba(184,160,151,.25); border-radius: 3px }
 .records-list { display: flex; flex-direction: column }
@@ -345,7 +345,7 @@ onUnmounted(() => { if (listRef.value) listRef.value.removeEventListener('scroll
 .rec-dot.ok { background: #5b9a5e }
 .rec-dot.err { background: #c94a4a }
 .rec-word { font-size: 15px; font-weight: 600; color: #2d2422 }
-.rec-trans { font-size: 12px; color: #b8a097; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 200px }
+.rec-trans { font-size: 12px; color: #b8a097; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 420px }
 .rec-right { display: flex; align-items: center; gap: 12px; flex-shrink: 0 }
 .rec-mode { font-size: 11px; font-weight: 600; white-space: nowrap }
 .rec-time { font-size: 11px; color: #b8a097; white-space: nowrap }
@@ -369,7 +369,7 @@ onUnmounted(() => { if (listRef.value) listRef.value.removeEventListener('scroll
 .load-more.end { color: rgba(184,160,151,.5) }
 
 @media (max-width: 768px) {
-  .main-area { padding: 24px 20px 60px }
+  .main-area { width: calc(100% - 16px); padding: 24px 0 60px }
   .overview-row { grid-template-columns: repeat(3, 1fr); gap: 10px }
   .ov-card { padding: 14px }
   .ov-value { font-size: 22px }

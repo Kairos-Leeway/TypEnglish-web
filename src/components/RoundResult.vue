@@ -85,6 +85,7 @@ const listItems = computed(() => {
       const correctCount = blanks.filter((s) => s.correct).length
       return {
         label: r.english,
+        slots: r.slots,
         sub: r.chinese,
         correct: r.correct,
         answer: r.correct ? '' : `${correctCount}/${blanks.length} 空正确`,
@@ -94,6 +95,7 @@ const listItems = computed(() => {
   }
   return props.results.map((r) => ({
     label: r.word.word,
+    slots: [] as SentenceResult['slots'],
     sub: r.word.translation || '',
     correct: r.correct,
     answer: r.answer,
@@ -181,7 +183,14 @@ const listItems = computed(() => {
                 </svg>
               </span>
               <div class="detail-text">
-                <span class="detail-word">{{ item.label }}</span>
+                <span v-if="isSentenceMode" class="detail-word sentence-detail">
+                  <span
+                    v-for="slot in item.slots"
+                    :key="slot.index"
+                    :class="{ 'incorrect-blank': !slot.visible && !slot.correct }"
+                  >{{ slot.word }}</span>
+                </span>
+                <span v-else class="detail-word">{{ item.label }}</span>
                 <span v-if="item.sub" class="detail-sub">{{ item.sub }}</span>
               </div>
             </div>
@@ -424,6 +433,20 @@ const listItems = computed(() => {
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   overflow: hidden;
+}
+.sentence-detail {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 0.3em;
+  overflow: visible;
+  -webkit-line-clamp: unset;
+}
+.sentence-detail .incorrect-blank {
+  color: #ff3b30;
+  font-weight: 750;
+  background: #fff0ef;
+  border-radius: 4px;
+  padding: 0 3px;
 }
 .detail-sub {
   font-size: 12px;

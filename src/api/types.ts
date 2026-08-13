@@ -110,5 +110,13 @@ export interface ConversationMessage {
   userId: number
   role: 'user' | 'assistant'
   content: string
+  tools?: Array<{
+    id: string
+    phase: 'start' | 'done' | 'error'
+    name: string
+    title: string
+    summary?: string
+    action?: { type: string; label: string; route: string; query?: Record<string, string | number> }
+  }>
   createTime: string
 }

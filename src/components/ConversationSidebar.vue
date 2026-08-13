@@ -117,10 +117,16 @@ defineExpose({ loadConversations })
 
 <style scoped>
 .sidebar {
-  width: 260px;
-  min-width: 260px;
-  background: #fff;
-  border-right: 1px solid rgba(184,160,151,.15);
+  width: 252px;
+  min-width: 252px;
+  box-sizing: border-box;
+  overflow: hidden;
+  background: rgba(255,255,255,.62);
+  border: 1px solid rgba(255,255,255,.78);
+  border-radius: 21px;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.94);
+  backdrop-filter: blur(24px) saturate(1.3);
+  -webkit-backdrop-filter: blur(24px) saturate(1.3);
   display: flex;
   flex-direction: column;
   height: 100%;
@@ -129,34 +135,36 @@ defineExpose({ loadConversations })
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 16px 16px 12px;
-  border-bottom: 1px solid rgba(184,160,151,.1);
+  min-height: 60px;
+  padding: 12px 13px 10px 17px;
+  border-bottom: 1px solid rgba(45,36,32,.06);
 }
 .sidebar-title {
   font-size: 14px;
-  font-weight: 600;
+  font-weight: 700;
   color: #2d2422;
 }
 .new-chat-btn {
   width: 32px;
   height: 32px;
-  border: 1px solid rgba(184,160,151,.18);
-  border-radius: 8px;
-  background: #fff;
+  border: 1px solid rgba(255,255,255,.82);
+  border-radius: 11px;
+  background: rgba(255,255,255,.72);
   color: #e8734a;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
-  transition: all .15s;
+  box-shadow: 0 3px 10px rgba(45,35,30,.055);
+  transition: transform .18s ease, background .18s ease, box-shadow .18s ease;
 }
-.new-chat-btn:hover { background: #fef3ee; }
-.sidebar-list { flex: 1; overflow-y: auto; padding: 8px 0; }
+.new-chat-btn:hover { background: #fff; transform: rotate(5deg) scale(1.04); box-shadow: 0 5px 14px rgba(45,35,30,.08) }
+.sidebar-list { flex: 1; overflow-y: auto; padding: 9px; }
 .sidebar-empty {
   text-align: center;
   color: #b8a097;
   font-size: 13px;
-  padding: 32px 16px;
+  padding: 38px 16px;
 }
 .sidebar-loading {
   text-align: center;
@@ -165,16 +173,20 @@ defineExpose({ loadConversations })
   padding: 24px;
 }
 .sidebar-item {
-  padding: 10px 16px;
+  padding: 11px 12px;
+  margin-bottom: 4px;
+  border: 1px solid transparent;
+  border-radius: 12px;
   cursor: pointer;
-  transition: background .1s;
+  transition: background .16s ease, border-color .16s ease, transform .16s ease;
   display: flex;
   flex-direction: column;
   gap: 2px;
   position: relative;
 }
-.sidebar-item:hover { background: #fef9f4; }
-.sidebar-item.active { background: #fef3ee; }
+.sidebar-item:hover { background: rgba(255,255,255,.62); transform: translateX(2px) }
+.sidebar-item.active { border-color: rgba(255,122,80,.14); background: rgba(255,244,238,.86) }
+.sidebar-item.active::before { content: ''; position: absolute; left: 5px; top: 12px; bottom: 12px; width: 2px; border-radius: 99px; background: #ff7048 }
 .sidebar-item-title {
   font-size: 13px;
   color: #2d2422;
@@ -200,7 +212,7 @@ defineExpose({ loadConversations })
 }
 .sidebar-item-del {
   position: absolute;
-  right: 12px;
+  right: 9px;
   top: 50%;
   transform: translateY(-50%);
   background: none;
@@ -213,4 +225,11 @@ defineExpose({ loadConversations })
 }
 .sidebar-item:hover .sidebar-item-del { opacity: 1; }
 .sidebar-item-del:hover { color: #c94a4a; }
+
+@media (max-width: 820px) {
+  .sidebar { width: 210px; min-width: 210px }
+}
+@media (max-width: 680px) {
+  .sidebar { display: none }
+}
 </style>

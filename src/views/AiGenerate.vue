@@ -135,8 +135,10 @@ function doCountdown(path: string) {
     <GlobalTopbar />
     <main class="main-area">
       <div class="gen-card">
-        <h2>让 AI 帮你出题</h2>
-        <p class="subtitle">选好参数，AI 自动生成题目并写入词库</p>
+        <section class="gen-config">
+          <span class="section-kicker">QUESTION STUDIO</span>
+          <h2>让 AI 帮你出题</h2>
+          <p class="subtitle">选好参数，AI 自动生成题目并写入词库</p>
 
         <div class="mode-switch">
           <button :class="['mode-btn', { active: mode === 'word' }]" @click="mode = 'word'">
@@ -191,7 +193,20 @@ function doCountdown(path: string) {
           <p class="progress-text">AI 正在出题...</p>
         </div>
 
-        <div v-if="error" class="error-box">{{ error }}</div>
+          <div v-if="error" class="error-box">{{ error }}</div>
+        </section>
+
+        <aside class="gen-preview" aria-label="当前生成方案">
+          <span class="preview-orbit" aria-hidden="true">
+            <i /><i /><i />
+            <svg width="34" height="34" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3v18M3 12h18"/><path d="m5.6 5.6 12.8 12.8M18.4 5.6 5.6 18.4"/></svg>
+          </span>
+          <span class="preview-label">本次生成</span>
+          <strong>{{ count }} {{ mode === 'word' ? '个单词' : '个句子' }}</strong>
+          <p>{{ topic || '自由主题' }}</p>
+          <span class="preview-level">难度 {{ difficulty }}/5 · {{ {1:'入门',2:'基础',3:'中级',4:'进阶',5:'挑战'}[difficulty] }}</span>
+          <div class="preview-steps"><span class="done">设定</span><i /><span>生成</span><i /><span>入库</span></div>
+        </aside>
 
         <!-- 单词结果 -->
         <div v-if="result && result.success && result.mode === 'word'" class="result-box">
@@ -233,8 +248,10 @@ function doCountdown(path: string) {
 
 <style scoped>
 .ai-generate{min-height:100vh;background:transparent}
-.main-area{max-width:760px;margin:0 auto;padding:50px 32px 80px}
-.gen-card{background:rgba(255,255,255,.78);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,.65);border-radius:24px;padding:40px;box-shadow:0 14px 40px rgba(184,160,151,.08),0 4px 12px rgba(184,160,151,.04),inset 0 0 0 1px rgba(255,255,255,.5)}
+.main-area{width:min(1320px,calc(100% - 44px));margin:0 auto;padding:36px 0 80px;box-sizing:border-box}
+.gen-card{display:grid;grid-template-columns:minmax(0,1fr) 340px;gap:44px;background:rgba(255,255,255,.78);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,.65);border-radius:24px;padding:40px;box-shadow:0 14px 40px rgba(184,160,151,.08),0 4px 12px rgba(184,160,151,.04),inset 0 0 0 1px rgba(255,255,255,.5)}
+.gen-config{min-width:0}
+.section-kicker{display:block;margin-bottom:8px;color:#e8734a;font-size:9px;font-weight:800;letter-spacing:1.6px}
 .gen-card h2{font-size:22px;color:#2d2422;margin:0 0 4px}
 .subtitle{font-size:14px;color:#b8a097;margin:0 0 28px}
 .mode-switch{display:flex;gap:8px;margin-bottom:24px}
@@ -262,6 +279,16 @@ function doCountdown(path: string) {
 .spinner{width:20px;height:20px;border:2px solid rgba(255,255,255,.3);border-top-color:#fff;border-radius:50%;animation:spin .6s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
 
+.gen-preview{position:relative;display:flex;flex-direction:column;align-items:flex-start;justify-content:center;min-height:360px;padding:34px;box-sizing:border-box;overflow:hidden;border:1px solid rgba(255,255,255,.12);border-radius:20px;background:linear-gradient(155deg,rgba(38,33,31,.96),rgba(65,49,43,.93));color:#fff;box-shadow:0 24px 48px rgba(62,44,36,.2),inset 0 1px 0 rgba(255,255,255,.12);backdrop-filter:blur(22px);-webkit-backdrop-filter:blur(22px)}
+.gen-preview::before{content:'';position:absolute;inset:-35% -20% auto;height:60%;background:radial-gradient(ellipse,rgba(255,148,105,.2),transparent 68%);filter:blur(12px);animation:previewGlow 6s ease-in-out infinite alternate}
+.gen-preview::after{content:'';position:absolute;right:-70px;bottom:-85px;width:210px;height:210px;border:1px solid rgba(255,255,255,.1);border-radius:50%;box-shadow:0 0 0 28px rgba(255,255,255,.025),0 0 0 58px rgba(255,255,255,.018)}
+.preview-orbit{display:grid;place-items:center;width:66px;height:66px;margin-bottom:38px;border:1px solid rgba(255,255,255,.16);border-radius:50%;color:#ff9a76}
+.preview-orbit i{position:absolute;width:5px;height:5px;border-radius:50%;background:#ff8b64;box-shadow:0 0 10px #ff8b64}
+.preview-orbit i:nth-child(1){transform:translate(31px,-13px)}.preview-orbit i:nth-child(2){transform:translate(-26px,23px)}.preview-orbit i:nth-child(3){transform:translate(8px,34px)}
+.preview-label{color:rgba(255,255,255,.54);font-size:10px;font-weight:750;letter-spacing:1.5px}
+.gen-preview strong{margin-top:7px;font-size:30px;line-height:1.15;letter-spacing:-.7px}.gen-preview p{margin:8px 0 18px;color:rgba(255,255,255,.72);font-size:15px}.preview-level{padding:7px 11px;border:1px solid rgba(255,255,255,.12);border-radius:9px;background:rgba(255,255,255,.06);color:rgba(255,255,255,.76);font-size:11px}
+.preview-steps{position:relative;z-index:1;display:flex;align-items:center;width:100%;margin-top:36px;color:rgba(255,255,255,.4);font-size:10px}.preview-steps i{flex:1;height:1px;margin:0 7px;background:rgba(255,255,255,.14)}.preview-steps .done{color:#ff9a76}
+@keyframes previewGlow{to{transform:translate(18%,18%) scale(1.12);opacity:.62}}
 .progress-box{margin-top:16px;padding:18px;background:rgba(255,255,255,.6);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-radius:14px;border:1px solid rgba(255,255,255,.65);box-shadow:0 6px 18px rgba(184,160,151,.05)}
 .progress-bar-wrap{height:6px;background:rgba(184,160,151,.12);border-radius:999px;overflow:hidden;margin-bottom:10px}
 .progress-bar-fill{height:100%;background:linear-gradient(90deg,#e8734a,#f0a478);border-radius:999px;transition:width .4s}
@@ -270,7 +297,7 @@ function doCountdown(path: string) {
 .progress-text{font-size:13px;color:#b8a097;margin:0;text-align:center}
 
 .error-box{margin-top:16px;padding:12px 16px;background:rgba(254,226,226,.5);color:#c94a4a;border-radius:10px;font-size:14px}
-.result-box{margin-top:20px;padding:22px;background:rgba(255,255,255,.6);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-radius:18px;border:1px solid rgba(255,255,255,.65);position:relative;box-shadow:0 8px 24px rgba(184,160,151,.06)}
+.result-box{grid-column:1/-1;margin-top:0;padding:22px;background:rgba(255,255,255,.6);backdrop-filter:blur(12px);-webkit-backdrop-filter:blur(12px);border-radius:18px;border:1px solid rgba(255,255,255,.65);position:relative;box-shadow:0 8px 24px rgba(184,160,151,.06)}
 .result-header{display:flex;align-items:center;gap:8px;font-size:16px;font-weight:700;color:#2d2422;margin-bottom:14px}
 .result-words{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:18px}
 .result-word{padding:5px 12px;background:rgba(255,255,255,.8);border-radius:8px;font-size:13px;color:#2d2422;border:1px solid rgba(255,255,255,.65)}
@@ -288,4 +315,6 @@ function doCountdown(path: string) {
 .countdown-num{font-size:56px;font-weight:800;color:#e8734a;animation:pop .5s ease}
 .countdown-overlay p{color:#2d2422;font-size:15px;margin:8px 0 0}
 @keyframes pop{0%{transform:scale(.5);opacity:0}80%{transform:scale(1.1)}100%{transform:scale(1);opacity:1}}
+@media(max-width:900px){.main-area{width:calc(100% - 24px);padding:28px 0 60px}.gen-card{grid-template-columns:1fr;padding:28px;gap:24px}.gen-preview{min-height:260px}.preview-orbit{margin-bottom:24px}}
+@media(max-width:560px){.main-area{width:calc(100% - 16px)}.gen-card{padding:22px 18px}.param-row{flex-direction:column;gap:4px}.result-actions{flex-direction:column}}
 </style>

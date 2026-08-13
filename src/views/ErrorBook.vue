@@ -20,7 +20,20 @@ const sentPage = ref(1)
 
 const activeTab = ref<'word' | 'sentence'>('word')
 const loading = ref(false)
+const speakingWordId = ref<number | null>(null)
+let speakAttempt = 0
 const pageSize = 30
+
+async function speakWord(item: any) {
+  const attempt = ++speakAttempt
+  speakingWordId.value = item.id
+  try {
+    await speak(item.word.word)
+  } finally {
+    // 点击另一个单词会取消前一个请求；旧请求结束时不能清掉新按钮的状态。
+    if (attempt === speakAttempt) speakingWordId.value = null
+  }
+}
 
 // ====== 加载 ======
 async function loadWordErrors() {
@@ -172,8 +185,9 @@ onMounted(async () => {
               </div>
               <div class="word-meta">
                 <span :class="['ww-err',{many:item.errorCount>=3}]">错 {{item.errorCount}} 次</span>
-                <button class="ww-speak" @click="speak(item.word.word)" title="听发音">
-                  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+                <button class="ww-speak" @click="speakWord(item)" :disabled="speakingWordId === item.id" :aria-busy="speakingWordId === item.id" :aria-label="`${item.word.word} 发音`" title="听发音">
+                  <span v-if="speakingWordId === item.id" class="tts-spinner" />
+                  <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
                 </button>
               </div>
             </div>
@@ -269,9 +283,13 @@ onMounted(async () => {
 .page-title{margin-left:12px;font-size:15px;font-weight:600;color:#1d1d1f}
 .count-tag{margin-left:10px;font-size:12px;color:#ff3b30;background:rgba(254,226,226,.5);padding:2px 10px;border-radius:10px;font-weight:600}
 .back-link{font-size:14px;color:#86868b;text-decoration:none;transition:color .15s;font-weight:500;margin-left:20px}.back-link:hover{color:#ff7a50}
-.main-area{max-width:1200px;margin:0 auto;padding:32px 48px 32px;display:flex;flex-direction:column;height:calc(100vh - 120px);overflow:hidden;gap:20px}
+.main-area{width:min(1320px,calc(100% - 44px));margin:0 auto;padding:32px 0;box-sizing:border-box;display:flex;flex-direction:column;height:calc(100vh - 120px);overflow:hidden;gap:20px}
 .list-shell{flex:1;min-height:0;display:flex;flex-direction:column;gap:14px}
-.scroll-body{flex:1;min-height:0;overflow-y:auto;padding-right:8px;margin-right:-8px}
+.scroll-body{flex:1;min-height:0;overflow-y:auto;padding-right:10px;scrollbar-gutter:stable;scrollbar-width:thin;scrollbar-color:rgba(255,122,80,.46) rgba(255,255,255,.38)}
+.scroll-body::-webkit-scrollbar{width:7px}
+.scroll-body::-webkit-scrollbar-track{border-radius:999px;background:rgba(255,255,255,.38)}
+.scroll-body::-webkit-scrollbar-thumb{border:2px solid transparent;border-radius:999px;background:linear-gradient(180deg,rgba(255,139,100,.72),rgba(255,112,72,.48));background-clip:padding-box}
+.scroll-body::-webkit-scrollbar-thumb:hover{background:linear-gradient(180deg,rgba(255,122,80,.9),rgba(255,94,52,.7));background-clip:padding-box}
 
 /* 空状态 */
 .empty-state{text-align:center;padding:100px 0}
@@ -302,8 +320,8 @@ onMounted(async () => {
 
 /* 单词网格 */
 .word-list{display:flex;flex-direction:column;gap:14px;margin-bottom:24px}
-.word-card{background:rgba(255,255,255,.72);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,.6);border-radius:20px;padding:22px 26px;display:flex;align-items:center;justify-content:space-between;gap:20px;transition:all .2s;box-shadow:0 10px 30px rgba(0,0,0,.04),0 3px 10px rgba(0,0,0,.02),inset 0 0 0 1px rgba(255,255,255,.5)}
-.word-card:hover{background:rgba(255,255,255,.86);transform:translateY(-2px);box-shadow:0 16px 44px rgba(0,0,0,.07),0 5px 14px rgba(0,0,0,.03),inset 0 0 0 1px rgba(255,255,255,.6)}
+.word-card{background:rgba(255,255,255,.74);border:1px solid rgba(62,54,50,.075);border-radius:18px;padding:22px 26px;display:flex;align-items:center;justify-content:space-between;gap:20px;transition:background-color .18s ease,border-color .18s ease;box-shadow:none}
+.word-card:hover{background:rgba(255,255,255,.88);border-color:rgba(255,122,80,.16);box-shadow:none}
 .word-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:6px}
 .word-title{display:flex;align-items:baseline;gap:12px;flex-wrap:wrap}
 .ww-word{font-size:22px;font-weight:800;color:#1d1d1f;letter-spacing:-.4px}
@@ -317,8 +335,8 @@ onMounted(async () => {
 
 /* 句子网格 */
 .sentence-grid{display:flex;flex-direction:column;gap:14px;margin-bottom:24px}
-.sentence-tile{background:rgba(255,255,255,.72);backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,.6);border-radius:20px;padding:22px 26px;transition:all .2s;box-shadow:0 10px 30px rgba(0,0,0,.04),0 3px 10px rgba(0,0,0,.02),inset 0 0 0 1px rgba(255,255,255,.5)}
-.sentence-tile:hover{background:rgba(255,255,255,.86);box-shadow:0 18px 48px rgba(0,0,0,.07),0 5px 14px rgba(0,0,0,.03),inset 0 0 0 1px rgba(255,255,255,.6)}
+.sentence-tile{background:rgba(255,255,255,.74);border:1px solid rgba(62,54,50,.075);border-radius:18px;padding:22px 26px;transition:background-color .18s ease,border-color .18s ease;box-shadow:none}
+.sentence-tile:hover{background:rgba(255,255,255,.88);border-color:rgba(255,122,80,.16);box-shadow:none}
 .st-header{display:flex;align-items:center;gap:12px;margin-bottom:14px}
 .st-badge{font-size:12px;font-weight:700;padding:4px 12px;border-radius:8px}
 .bd-cloze{background:rgba(255,122,80,.1);color:#ff7a50}
@@ -329,7 +347,7 @@ onMounted(async () => {
 .st-slot{padding:6px 14px;border-radius:10px;font-size:15px;font-weight:500}
 .st-slot.st-vis{background:rgba(0,0,0,.04);color:#86868b;border:1px dashed rgba(0,0,0,.1)}
 .st-slot.st-ok{background:rgba(52,199,89,.1);color:#34c759}
-.st-slot.st-err{background:rgba(255,59,48,.1);color:#ff3b30;text-decoration:line-through}
+.st-slot.st-err{background:rgba(255,59,48,.1);color:#ff3b30;text-decoration:none}
 .st-answer{text-decoration:none!important;font-size:12px;color:#ff9500;margin-left:6px;font-weight:400}
 .st-repractice{align-self:flex-start;padding:9px 22px;border:1.5px solid rgba(255,122,80,.2);border-radius:12px;background:rgba(255,255,255,.6);color:#1d1d1f;font-size:14px;font-weight:600;cursor:pointer;transition:all .15s}
 .st-repractice:hover{background:rgba(255,122,80,.1);border-color:#ff7a50;color:#ff7a50;transform:translateY(-1px)}
@@ -405,7 +423,7 @@ onMounted(async () => {
 @keyframes scaleIn { 0%{opacity:0;transform:scale(.92)} 100%{opacity:1;transform:scale(1)} }
 
 @media(max-width:768px){
-  .topbar,.main-area{padding-left:20px;padding-right:20px}
+  .main-area{width:calc(100% - 16px);padding-left:0;padding-right:0}
   .category-cards{grid-template-columns:1fr}
   .word-grid{grid-template-columns:repeat(2,1fr)}
 }

@@ -11,6 +11,78 @@ function getCtx(): AudioContext {
   return audioCtx
 }
 
+function ensureRunning(ctx: AudioContext) {
+  if (ctx.state === 'suspended') void ctx.resume()
+}
+
+/** 单题答对：轻盈的三音上行，带一点玻璃质感但不尖锐。 */
+export function playCorrectTone() {
+  try {
+    const ctx = getCtx(); ensureRunning(ctx)
+    const now = ctx.currentTime
+    const master = ctx.createGain()
+    const compressor = ctx.createDynamicsCompressor()
+    master.gain.setValueAtTime(0.72, now)
+    master.connect(compressor); compressor.connect(ctx.destination)
+
+    const notes = [
+      { frequency: 659.25, delay: 0, volume: 0.105 },
+      { frequency: 987.77, delay: 0.055, volume: 0.095 },
+      { frequency: 1318.51, delay: 0.115, volume: 0.075 },
+    ]
+    for (const note of notes) {
+      const start = now + note.delay
+      const osc = ctx.createOscillator()
+      const overtone = ctx.createOscillator()
+      const gain = ctx.createGain()
+      const overtoneGain = ctx.createGain()
+      osc.type = 'sine'; overtone.type = 'sine'
+      osc.frequency.setValueAtTime(note.frequency, start)
+      overtone.frequency.setValueAtTime(note.frequency * 2.01, start)
+      gain.gain.setValueAtTime(0.0001, start)
+      gain.gain.exponentialRampToValueAtTime(note.volume, start + 0.008)
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + 0.34)
+      overtoneGain.gain.setValueAtTime(0.0001, start)
+      overtoneGain.gain.exponentialRampToValueAtTime(note.volume * 0.12, start + 0.006)
+      overtoneGain.gain.exponentialRampToValueAtTime(0.0001, start + 0.16)
+      osc.connect(gain); overtone.connect(overtoneGain)
+      gain.connect(master); overtoneGain.connect(master)
+      osc.start(start); overtone.start(start)
+      osc.stop(start + 0.36); overtone.stop(start + 0.18)
+    }
+  } catch {}
+}
+
+/** 单题答错：短促低落的双音，不刺耳、不制造失败焦虑。 */
+export function playErrorTone() {
+  try {
+    const ctx = getCtx(); ensureRunning(ctx)
+    const now = ctx.currentTime
+    const master = ctx.createGain()
+    const filter = ctx.createBiquadFilter()
+    filter.type = 'lowpass'; filter.frequency.setValueAtTime(1250, now)
+    master.gain.setValueAtTime(0.65, now)
+    master.connect(filter); filter.connect(ctx.destination)
+
+    const notes = [
+      { frequency: 329.63, delay: 0, duration: 0.16, volume: 0.105 },
+      { frequency: 246.94, delay: 0.09, duration: 0.22, volume: 0.09 },
+    ]
+    for (const note of notes) {
+      const start = now + note.delay
+      const osc = ctx.createOscillator(); const gain = ctx.createGain()
+      osc.type = 'triangle'
+      osc.frequency.setValueAtTime(note.frequency, start)
+      osc.frequency.exponentialRampToValueAtTime(note.frequency * 0.94, start + note.duration)
+      gain.gain.setValueAtTime(0.0001, start)
+      gain.gain.exponentialRampToValueAtTime(note.volume, start + 0.01)
+      gain.gain.exponentialRampToValueAtTime(0.0001, start + note.duration)
+      osc.connect(gain); gain.connect(master)
+      osc.start(start); osc.stop(start + note.duration + 0.02)
+    }
+  } catch {}
+}
+
 /** 播放类似苹果通知音的完成音效 — 纯净、清脆、不拖沓 */
 export function playChime() {
   try {
@@ -109,4 +181,3 @@ export function playSkipTone() {
     osc.start(now); osc.stop(now + 0.22)
   } catch {}
 }
-

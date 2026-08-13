@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, nextTick } from 'vue'
 import { useRoute } from 'vue-router'
-import { speak } from '../composables/useTts'
+import { speak, isTtsLoading } from '../composables/useTts'
 import { useWordLookup } from '../composables/useWordLookup'
 import { celebrate } from '../composables/useConfetti'
 import { playKeytap } from '../composables/useChime'
@@ -257,8 +257,9 @@ onUnmounted(() => document.removeEventListener('keydown', onGlobalKeydown))
             <span class="counter">{{currentIndex+1}}/{{sentences.length}}</span>
             <div class="top-actions">
               <button class="mini-btn btn-skip" @click="skipSentence">跳过</button>
-              <button class="action-btn" @click="speak(sentences[currentIndex].english)">
-                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg> 朗读
+              <button class="action-btn" @click="speak(sentences[currentIndex].english)" :disabled="isTtsLoading" :aria-busy="isTtsLoading">
+                <span v-if="isTtsLoading" class="tts-spinner" />
+                <svg v-else width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg> {{ isTtsLoading ? '准备语音...' : '朗读' }}
               </button>
               <button class="action-btn" @click="showHint">
                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/></svg> 提示

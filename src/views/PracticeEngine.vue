@@ -8,8 +8,8 @@
 import { ref, onMounted, onUnmounted, nextTick, watch, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import api from '../api'
-import { speak } from '../composables/useTts'
-import { playChime, playKeytap } from '../composables/useChime'
+import { speak, isTtsLoading } from '../composables/useTts'
+import { playCorrectTone, playErrorTone, playKeytap } from '../composables/useChime'
 import { useWordLookup } from '../composables/useWordLookup'
 import { useXp } from '../composables/useXp'
 import { useAuthStore } from '../stores/auth'
@@ -46,11 +46,16 @@ const isReviewSentence = computed(() => route.query.review === 'sentence')
 // Shared state
 // ============================================================
 const loading = ref(true)
+const loadError = ref('')
 const finished = ref(false)
 const completed = ref(false) // true: 做完所有题; false: 中途结束
 const showCelebration = ref(false)
 const currentIndex = ref(0)
 const language = ref('en')
+const requestedCount = computed(() => {
+  const value = Number(route.query.count)
+  return Number.isFinite(value) ? Math.max(5, Math.min(value, 50)) : 10
+})
 const MAX_WRONG_BEFORE_HINT = 3
 
 // ============================================================
@@ -192,7 +197,6 @@ function buildSlots(wordsData: Array<{ index: number; word: string; wordId: numb
 
 function initSlots(wordsData: Array<{ index: number; word: string; wordId: number | null }>) {
   slots.value = buildSlots(wordsData)
-  sentenceResults.value = []
   nextTick(() => { (document.querySelector('.slot-input') as HTMLInputElement)?.focus() })
 }
 
@@ -243,11 +247,13 @@ function validateSlot(slot: WordSlot): boolean {
   const ok = input.toLowerCase() === slot.word.toLowerCase()
   if (ok) {
     slot.status = 'correct'; correctCount.value++
+    playCorrectTone()
     gainXp(10)
     checkAllDone()
     return true
   } else {
     slot.status = 'retry'; slot.shaking = true; slot.wrongCount++
+    playErrorTone()
     setTimeout(() => slot.shaking = false, 500)
     if (slot.wrongCount >= MAX_WRONG_BEFORE_HINT) {
       slot.hintLevel = Math.min(slot.hintLevel + 1, slot.word.length); slot.wrongCount = 0
@@ -286,9 +292,12 @@ function hintLabel(slot: WordSlot): string {
 // Loading
 // ============================================================
 async function loadData() {
-  loading.value = true; finished.value = false; completed.value = false; correctCount.value = 0
+  loading.value = true; loadError.value = ''; finished.value = false; completed.value = false; correctCount.value = 0
 
   if (isSentenceMode.value) {
+    // Clear results once when a new round starts. initSlots() also runs between
+    // sentences, so clearing there would discard every result except the last.
+    sentenceResults.value = []
     // Sentence / Cloze / Review
     try {
       if (isReviewSentence.value) {
@@ -300,14 +309,19 @@ async function loadData() {
           words: se.slots.map((s: any) => ({ index: s.index, word: s.word, wordId: null, punctuation: s.visible || false, translation: undefined, phonetic: undefined }))
         }))
       } else {
-        const { data } = await api.get('/sentences', { params: { count: 10 } })
+        const { data } = await api.get('/sentences', { params: { count: requestedCount.value } })
         sentences.value = data
       }
       if (sentences.value.length > 0) {
         currentIndex.value = 0
         initSlots(sentences.value[0].words)
+      } else {
+        loadError.value = '当前题库还没有可用的句子，请返回首页选择其他练习。'
       }
-    } catch (e) { console.error(e) }
+    } catch (e) {
+      console.error(e)
+      loadError.value = '题目加载失败，请检查后端服务后重试。'
+    }
     finally { loading.value = false }
     return
   }
@@ -320,11 +334,19 @@ async function loadData() {
       const stored = localStorage.getItem('reviewWords')
       if (stored) { words.value = JSON.parse(stored); localStorage.removeItem('reviewWords') }
     } else {
-      const { data } = await api.post('/practice/session', { language: 'en', mode: 'typing', count: 10, category: selectedCategory.value || undefined })
+      const requestedLanguage = typeof route.query.language === 'string' ? route.query.language : 'en'
+      language.value = requestedLanguage
+      const { data } = await api.post('/practice/session', { language: requestedLanguage, mode: 'typing', count: requestedCount.value, category: selectedCategory.value || undefined })
       words.value = data.words
     }
+    if (words.value.length === 0) {
+      loadError.value = '当前语言的词库暂无可用题目，请返回首页选择其他练习。'
+    }
     await nextTick(); inputRef.value?.focus()
-  } catch (e: any) { console.error(e) }
+  } catch (e: any) {
+    console.error(e)
+    loadError.value = '题目加载失败，请检查后端服务后重试。'
+  }
   finally { loading.value = false }
 }
 
@@ -343,7 +365,7 @@ function submitBatchResults() {
   }
   const modeLabel = mode.value === 'cloze' ? 'cloze' : 'translation'
   const items = slots.value.filter(s => mode.value === 'cloze' ? !s.visible : !s.punctuation)
-    .map(s => ({ wordId: s.wordId, wordText: s.word, correct: s.status === 'correct', answer: s.userInput || '' }))
+    .map(s => ({ wordId: s.wordId, wordText: s.word, correct: s.status === 'correct', answer: s.userInput || '', attempts: s.wrongCount + 1, hintUsed: s.hintLevel > 0, skipped: !s.userInput }))
   if (items.length === 0) return
   api.post('/practice/submit-batch', { mode: modeLabel, language: language.value, items }).catch(() => { })
 }
@@ -386,7 +408,7 @@ function nextItem() {
 function skipWord() {
   const cur = words.value[currentIndex.value]
   results.value.push({ word: cur, correct: false, answer: '(跳过)', attempts: attempts.value })
-  api.post('/practice/submit', { wordId: cur.id, mode: 'typing', correct: false, answer: '(跳过)' }).catch(() => { })
+  api.post('/practice/submit', { wordId: cur.id, mode: 'typing', correct: false, answer: '(跳过)', attempts: attempts.value, hintUsed: showHint.value, skipped: true }).catch(() => { })
   if (currentIndex.value >= words.value.length - 1) { endSession(true); return }
   nextItem()
 }
@@ -400,18 +422,18 @@ async function submitWord() {
   }
   const ok = isAnswerCorrect(input, cur.word)
   if (ok) {
-    playChime(); gainXp(5); showFeedback('ok')
+    playCorrectTone(); gainXp(5); showFeedback('ok')
     results.value.push({ word: cur, correct: true, answer: input, attempts: attempts.value + 1 })
     if (attempts.value === 0) correctCount.value++
-    await api.post('/practice/submit', { wordId: cur.id, mode: 'typing', correct: true, answer: input }).catch(() => { })
-    setTimeout(() => nextItem(), 300); return
+    await api.post('/practice/submit', { wordId: cur.id, mode: 'typing', correct: true, answer: input, attempts: attempts.value + 1, hintUsed: showHint.value, skipped: false }).catch(() => { })
+    setTimeout(() => nextItem(), 520); return
   }
-  attempts.value++; shaking.value = true; setTimeout(() => shaking.value = false, 500)
+  attempts.value++; shaking.value = true; playErrorTone(); setTimeout(() => shaking.value = false, 500)
   if (attempts.value >= MAX_ATTEMPTS) {
     showAnswer.value = true; showHint.value = false; mustRetype.value = true
     showFeedback('err', '正确答案已显示')
     results.value.push({ word: cur, correct: false, answer: input, attempts: attempts.value })
-    await api.post('/practice/submit', { wordId: cur.id, mode: 'typing', correct: false, answer: input }).catch(() => { })
+    await api.post('/practice/submit', { wordId: cur.id, mode: 'typing', correct: false, answer: input, attempts: attempts.value, hintUsed: showHint.value, skipped: false }).catch(() => { })
     userInput.value = ''
   } else if (attempts.value >= 2) { showHint.value = true; showFeedback('hint', '再试一次'); userInput.value = '' }
   else { showFeedback('err', '不对，请重试'); userInput.value = '' }
@@ -531,27 +553,53 @@ const pageTitle = computed(() => {
   if (mode.value === 'cloze') return 'TypEnglish · 完形填空'
   return 'TypEnglish · 句子翻译'
 })
+const practiceName = computed(() => pageTitle.value.replace('TypEnglish · ', ''))
 </script>
 
 <template>
   <div class="practice-engine">
-    <CelebrationFrame v-show="showCelebration" v-model="showCelebration" />
+    <CelebrationFrame v-show="showCelebration" v-model="showCelebration" :correct-count="correctCount" />
 
     <!-- ========== TOPBAR ========== -->
     <header class="topbar">
-      <router-link to="/" class="logo-link"><span class="logo-icon">T</span></router-link>
-      <span class="page-title">{{ pageTitle }}</span>
-      <div style="flex:1" />
-      <div class="xp-bar">
-        <span class="xp-label">Lv.{{ level }}</span>
-        <el-progress :percentage="progress" :show-text="false" :stroke-width="4" style="width:72px" color="#34c759" />
+      <div class="nav-island context-island">
+        <router-link to="/" class="nav-back" aria-label="返回首页" title="返回首页">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="m15 18-6-6 6-6" /></svg>
+        </router-link>
+        <span class="nav-divider" aria-hidden="true" />
+        <span class="brand-signal" aria-hidden="true"><i /><i /><i /></span>
+        <span class="nav-context">
+          <span class="nav-eyebrow">FOCUS SESSION</span>
+          <strong class="page-title">{{ practiceName }}</strong>
+        </span>
       </div>
-      <button class="logout-btn" @click="auth.logout(); router.push('/login')">退出</button>
+
+      <div class="nav-island status-island">
+        <span class="level-orb">{{ level }}</span>
+        <span class="xp-context">
+          <span class="xp-copy"><strong>Lv.{{ level }}</strong><small>{{ progress }}%</small></span>
+          <span class="xp-track" aria-label="本级学习进度"><i :style="{ width: progress + '%' }" /></span>
+        </span>
+        <button class="logout-btn" @click="auth.logout(); router.push('/login')" aria-label="退出登录" title="退出登录">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/></svg>
+        </button>
+      </div>
     </header>
 
     <!-- ========== LOADING ========== -->
     <div v-if="loading" class="center-state">
       <div class="loader" /><p>{{ isSentenceMode ? '加载句子中...' : '准备题目中...' }}</p>
+    </div>
+
+    <div v-else-if="loadError" class="load-error-state" role="alert">
+      <div class="load-error-icon">
+        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 3a9 9 0 1 0 9 9"/><path d="M12 8v5m0 3.5v.5"/><path d="M16 3h5v5"/><path d="m21 3-6 6"/></svg>
+      </div>
+      <div class="load-error-copy"><strong>这一轮还没准备好</strong><p>{{ loadError }}</p></div>
+      <div class="load-error-actions">
+        <button class="retry-load" @click="loadData">重新加载</button>
+        <button class="back-home" @click="router.push('/')">返回首页</button>
+      </div>
     </div>
 
     <!-- ========== RESULT PANEL ========== -->
@@ -582,9 +630,10 @@ const pageTitle = computed(() => {
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/></svg>
                 <span>提示</span>
               </button>
-              <button class="tool-btn speak" @click="speak(words[currentIndex]?.word)" title="听发音">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
-                <span>朗读</span>
+              <button class="tool-btn speak" @click="speak(words[currentIndex]?.word)" :disabled="isTtsLoading" :aria-busy="isTtsLoading" title="听发音">
+                <span v-if="isTtsLoading" class="tts-spinner" />
+                <svg v-else width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+                <span>{{ isTtsLoading ? '准备语音...' : '朗读' }}</span>
               </button>
               <button class="tool-btn skip" @click="skipWord" title="跳过 (Ctrl+S)">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 7 12 1 20"/><polyline points="23 4 17 12 23 20"/></svg>
@@ -613,10 +662,15 @@ const pageTitle = computed(() => {
             <p v-if="showHint" class="hint-text">{{ hintText() }}</p>
             <p v-if="showAnswer" class="reveal-answer">{{ words[currentIndex].word }}</p>
           </div>
-          <div class="input-row">
+          <div :class="['input-row', { 'answer-correct-fx': feedback === 'ok', 'answer-error-fx': shaking }]">
+            <span class="answer-fx-ring" aria-hidden="true" />
+            <span class="answer-fx-spark spark-one" aria-hidden="true" />
+            <span class="answer-fx-spark spark-two" aria-hidden="true" />
+            <span class="answer-fx-spark spark-three" aria-hidden="true" />
             <input ref="inputRef" v-model="userInput" class="answer-input" :class="{ wrong: shaking, revealed: showAnswer }" placeholder="输入单词..." autocomplete="off" spellcheck="false" @keyup.enter="submitWord()" @keydown="playKeytap()" />
-            <button class="speak-btn" @click="speak(words[currentIndex].word)" :disabled="showAnswer" title="听发音">
-              <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" /></svg>
+            <button class="speak-btn" @click="speak(words[currentIndex].word)" :disabled="showAnswer || isTtsLoading" :aria-busy="isTtsLoading" title="听发音">
+              <span v-if="isTtsLoading" class="tts-spinner" />
+              <svg v-else width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5" /><path d="M19.07 4.93a10 10 0 0 1 0 14.14" /></svg>
             </button>
           </div>
           <span v-if="attempts > 0 && !mustRetype" class="attempts-badge">{{ attempts }}/{{ MAX_ATTEMPTS }} 次尝试</span>
@@ -636,13 +690,12 @@ const pageTitle = computed(() => {
           </div>
         </div>
         <div class="bottom-zone">
-          <span class="si-label">快捷键</span>
-          <div class="si-items">
-            <span class="si-item"><kbd>↵</kbd><span>确认</span></span>
-            <span class="si-item"><kbd>Ctrl+H</kbd><span>朗读</span></span>
-            <span class="si-item"><kbd>Ctrl+I</kbd><span>提示</span></span>
-            <span class="si-item"><kbd>Ctrl+S</kbd><span>跳过</span></span>
-            <span class="si-item"><kbd>Esc</kbd><span>返回</span></span>
+          <div class="si-items" aria-label="键盘快捷操作">
+            <span class="si-item"><span class="key-sequence"><kbd>↵</kbd></span><span class="si-action">确认</span></span>
+            <span class="si-item"><span class="key-sequence"><kbd class="key-mod">Ctrl</kbd><kbd>H</kbd></span><span class="si-action">朗读</span></span>
+            <span class="si-item"><span class="key-sequence"><kbd class="key-mod">Ctrl</kbd><kbd>I</kbd></span><span class="si-action">提示</span></span>
+            <span class="si-item"><span class="key-sequence"><kbd class="key-mod">Ctrl</kbd><kbd>S</kbd></span><span class="si-action">跳过</span></span>
+            <span class="si-item"><span class="key-sequence"><kbd class="key-wide">esc</kbd></span><span class="si-action">返回</span></span>
           </div>
         </div>
       </div>
@@ -660,9 +713,10 @@ const pageTitle = computed(() => {
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/></svg>
                 <span>提示</span>
               </button>
-              <button class="tool-btn speak" @click="speak(sentences[currentIndex].english)" title="听发音">
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
-                <span>朗读</span>
+              <button class="tool-btn speak" @click="speak(sentences[currentIndex].english)" :disabled="isTtsLoading" :aria-busy="isTtsLoading" title="听发音">
+                <span v-if="isTtsLoading" class="tts-spinner" />
+                <svg v-else width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="11 5 6 9 2 9 2 15 6 15 11 19 11 5"/><path d="M19.07 4.93a10 10 0 0 1 0 14.14"/></svg>
+                <span>{{ isTtsLoading ? '准备语音...' : '朗读' }}</span>
               </button>
               <button class="tool-btn skip" @click="skipSentence" title="跳过 (Ctrl+S)">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="1 4 7 12 1 20"/><polyline points="23 4 17 12 23 20"/></svg>
@@ -686,7 +740,7 @@ const pageTitle = computed(() => {
               <!-- Punctuation -->
               <span v-if="s.punctuation" class="punct-mark">{{ s.word }}</span>
               <!-- Hidden blank (cloze) -->
-              <span v-else-if="mode === 'cloze' && !s.visible" class="slot-wrapper" @mouseenter="s.status === 'correct' ? onWordHover(s) : null" @mouseleave="s.status === 'correct' ? onWordLeave() : null">
+              <span v-else-if="mode === 'cloze' && !s.visible" :class="['slot-wrapper', s.status, { shaking: s.shaking }]" @mouseenter="s.status === 'correct' ? onWordHover(s) : null" @mouseleave="s.status === 'correct' ? onWordLeave() : null">
                 <div v-if="hintLabel(s)" class="hint-above">{{ hintLabel(s) }}</div>
                 <input :data-slot="s.index" v-model="s.userInput" :class="['slot-input', s.status, { shaking: s.shaking }]" :disabled="s.status === 'correct'" :style="{ width: Math.max(s.word.length * 14 + 20, 56) + 'px' }" spellcheck="false" autocomplete="off" @keydown="onSlotKeydown($event, s, i)" />
                 <div v-if="hoveredIdx === s.index && s.status === 'correct'" class="hover-word-card" :class="{ loaded: hoveredDetail }">
@@ -721,13 +775,12 @@ const pageTitle = computed(() => {
           </div>
         </div>
         <div class="bottom-zone">
-          <span class="si-label">快捷键</span>
-          <div class="si-items">
-            <span class="si-item"><kbd>← Tab →</kbd><span>切换空位</span></span>
-            <span class="si-item"><kbd>Ctrl+H</kbd><span>朗读</span></span>
-            <span class="si-item"><kbd>Ctrl+I</kbd><span>提示</span></span>
-            <span class="si-item"><kbd>Ctrl+S</kbd><span>跳过</span></span>
-            <span class="si-item"><kbd>Esc</kbd><span>返回</span></span>
+          <div class="si-items" aria-label="键盘快捷操作">
+            <span class="si-item"><span class="key-sequence"><kbd class="key-wide">Tab</kbd></span><span class="si-action">切换空位</span></span>
+            <span class="si-item"><span class="key-sequence"><kbd class="key-mod">Ctrl</kbd><kbd>H</kbd></span><span class="si-action">朗读</span></span>
+            <span class="si-item"><span class="key-sequence"><kbd class="key-mod">Ctrl</kbd><kbd>I</kbd></span><span class="si-action">提示</span></span>
+            <span class="si-item"><span class="key-sequence"><kbd class="key-mod">Ctrl</kbd><kbd>S</kbd></span><span class="si-action">跳过</span></span>
+            <span class="si-item"><span class="key-sequence"><kbd class="key-wide">esc</kbd></span><span class="si-action">返回</span></span>
           </div>
         </div>
       </div>
@@ -762,20 +815,43 @@ const pageTitle = computed(() => {
 /* ====== 全局 ====== */
 .practice-engine { height: 100vh; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; background: transparent }
 
-/* ====== 顶栏 ====== */
-.topbar { display: flex; align-items: center; padding: 0 24px; height: 56px; background: rgba(255, 255, 255, .78); backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px); border-bottom: 1px solid rgba(0, 0, 0, .15); flex-shrink: 0; z-index: 10 }
-.logo-link { text-decoration: none }
-.logo-icon { width: 34px; height: 34px; background: #ff7a50; color: #fff; border-radius: 8px; display: flex; align-items: center; justify-content: center; font-size: 14px; font-weight: 700 }
-.page-title { font-size: 17px; font-weight: 600; color: #1d1d1f; margin-left: 10px }
-.xp-bar { display: flex; align-items: center; gap: 6px; margin-right: 2px }
-.xp-label { font-size: 14px; font-weight: 600; color: #ff7a50; white-space: nowrap }
-.logout-btn { margin-left: 14px; padding: 6px 14px; border: 1px solid rgba(0, 0, 0, .18); border-radius: 8px; background: rgba(255, 255, 255, .5); color: #86868b; font-size: 13px; cursor: pointer; transition: all .15s; font-family: inherit }
-.logout-btn:hover { border-color: #ff3b30; color: #ff3b30 }
+/* ====== 悬浮导航岛 ====== */
+.topbar { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 66px; padding: 14px 18px 4px; flex-shrink: 0; z-index: 10; pointer-events: none }
+.nav-island { display: flex; align-items: center; pointer-events: auto; box-sizing: border-box; min-height: 48px; border: 1px solid rgba(255,255,255,.76); border-radius: 17px; background: rgba(255,255,255,.62); box-shadow: 0 9px 28px rgba(44,32,25,.065), inset 0 1px 0 rgba(255,255,255,.92); backdrop-filter: blur(24px) saturate(1.35); -webkit-backdrop-filter: blur(24px) saturate(1.35) }
+.context-island { gap: 10px; padding: 5px 15px 5px 6px }
+.nav-back { display: grid; place-items: center; width: 36px; height: 36px; border-radius: 12px; color: #6e6e73; background: rgba(255,255,255,.74); box-shadow: 0 1px 5px rgba(0,0,0,.06); transition: transform .18s ease, color .18s ease, background .18s ease }
+.nav-back:hover { color: #ff6b42; background: #fff; transform: translateX(-2px) }
+.nav-divider { width: 1px; height: 22px; background: rgba(0,0,0,.075) }
+.brand-signal { display: flex; align-items: center; justify-content: center; gap: 2px; width: 20px; height: 26px; color: #ff7048 }
+.brand-signal i { display: block; width: 3px; border-radius: 999px; background: currentColor; animation: signalBreathe 1.8s ease-in-out infinite }
+.brand-signal i:nth-child(1) { height: 8px; animation-delay: -.25s }
+.brand-signal i:nth-child(2) { height: 17px }
+.brand-signal i:nth-child(3) { height: 11px; animation-delay: -.55s }
+@keyframes signalBreathe { 0%,100% { transform: scaleY(.72); opacity: .62 } 50% { transform: scaleY(1); opacity: 1 } }
+.nav-context { display: flex; flex-direction: column; justify-content: center; gap: 1px; min-width: 102px }
+.nav-eyebrow { color: #aaa6a3; font-size: 8px; font-weight: 750; letter-spacing: 1.35px; line-height: 1.2 }
+.page-title { color: #292624; font-size: 14px; font-weight: 680; line-height: 1.3; white-space: nowrap }
+.status-island { gap: 9px; padding: 5px 6px 5px 7px }
+.level-orb { display: grid; place-items: center; width: 34px; height: 34px; border-radius: 12px; color: #fff; background: linear-gradient(145deg, #ff8b64, #ff6641); box-shadow: 0 5px 13px rgba(255,105,67,.24); font-size: 12px; font-weight: 760 }
+.xp-context { display: flex; flex-direction: column; gap: 5px; width: 82px }
+.xp-copy { display: flex; align-items: baseline; justify-content: space-between; line-height: 1 }
+.xp-copy strong { color: #4b4744; font-size: 11px; font-weight: 700 }
+.xp-copy small { color: #aaa6a3; font-size: 9px; font-weight: 600 }
+.xp-track { position: relative; height: 4px; overflow: hidden; border-radius: 99px; background: rgba(0,0,0,.07) }
+.xp-track i { position: absolute; inset: 0 auto 0 0; max-width: 100%; border-radius: inherit; background: linear-gradient(90deg, #54cf78, #8cdc77); box-shadow: 0 0 8px rgba(68,195,105,.35); transition: width .35s ease }
+.logout-btn { display: grid; place-items: center; width: 34px; height: 34px; padding: 0; border: 0; border-radius: 11px; background: transparent; color: #aaa6a3; cursor: pointer; transition: color .18s ease, background .18s ease; font-family: inherit }
+.logout-btn:hover { color: #ff453a; background: rgba(255,69,58,.08) }
 
 /* ====== 加载 ====== */
 .center-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; color: #86868b; gap: 16px }
 .loader { width: 28px; height: 28px; border: 2px solid rgba(0, 0, 0, .18); border-top-color: #ff7a50; border-radius: 50%; animation: spin .7s linear infinite }
 @keyframes spin { to { transform: rotate(360deg) } }
+.load-error-state{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;padding:32px 20px;color:#2d2928}
+.load-error-icon{display:grid;place-items:center;width:64px;height:64px;margin-bottom:18px;border:1px solid rgba(255,122,80,.18);border-radius:20px;color:#ff7048;background:rgba(255,255,255,.68);box-shadow:0 14px 38px rgba(232,115,74,.1),inset 0 1px 0 rgba(255,255,255,.9);backdrop-filter:blur(18px)}
+.load-error-copy strong{font-size:20px;font-weight:720}.load-error-copy p{max-width:440px;margin:8px auto 0;color:#86868b;font-size:14px;line-height:1.7}
+.load-error-actions{display:flex;gap:10px;margin-top:22px}.load-error-actions button{height:40px;padding:0 18px;border-radius:12px;font:600 13px inherit;cursor:pointer;transition:.18s}
+.retry-load{border:0;color:#fff;background:linear-gradient(135deg,#ff7a50,#ff9872);box-shadow:0 7px 18px rgba(255,112,72,.22)}.retry-load:hover{transform:translateY(-1px)}
+.back-home{border:1px solid rgba(0,0,0,.08);color:#6e6e73;background:rgba(255,255,255,.7)}.back-home:hover{color:#2d2928;background:#fff}
 
 /* ====== 结果面板 ====== */
 .result-panel { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 16px; padding: 48px 24px }
@@ -871,19 +947,38 @@ const pageTitle = computed(() => {
 .pos-tag { font-size: 16px; color: #86868b; margin: 6px 0 0; font-style: italic }
 .hint-text { margin-top: 14px; font-size: 18px; color: #ff7a50; background: #fef3ee; display: inline-block; padding: 6px 18px; border-radius: 8px; font-family: 'SF Mono', monospace; letter-spacing: 2px }
 .reveal-answer { margin-top: 14px; font-size: 22px; color: #ff3b30; font-weight: 700; background: #fff0ef; display: inline-block; padding: 6px 18px; border-radius: 8px }
-.input-row { display: flex; align-items: flex-end; justify-content: center; gap: 0; margin-top: 36px }
+.input-row { position: relative; display: flex; align-items: flex-end; justify-content: center; gap: 0; margin-top: 36px; isolation: isolate }
 .answer-input { width: 100%; max-width: 480px; padding: 12px 0; border: none; border-bottom: 2.5px solid rgba(0, 0, 0, .25); font-size: 28px; outline: 0; text-align: center; font-family: inherit; background: transparent; transition: border-color .2s; border-radius: 0; letter-spacing: 1px; box-sizing: border-box; color: #1d1d1f }
 .answer-input::placeholder { color: rgba(0, 0, 0, .25) }
 .answer-input:focus { border-bottom-color: #ff7a50 }
 .answer-input.revealed { border-bottom-color: #ffaea9; color: #ff3b30 }
+.answer-fx-ring { position: absolute; left: 50%; bottom: 0; width: min(500px, 88%); height: 48px; border-radius: 50%; border: 1.5px solid transparent; transform: translateX(-50%) scale(.82); pointer-events: none; z-index: -1; opacity: 0 }
+.answer-fx-spark { position: absolute; left: 50%; bottom: 14px; width: 5px; height: 5px; border-radius: 50%; background: #34c759; box-shadow: 0 0 12px rgba(52,199,89,.55); pointer-events: none; opacity: 0 }
+.answer-correct-fx .answer-input { color: #248a3d; border-bottom-color: #34c759; animation: answerSettle .5s cubic-bezier(.2,1.45,.35,1) both }
+.answer-correct-fx .answer-fx-ring { border-color: rgba(52,199,89,.42); background: radial-gradient(ellipse, rgba(52,199,89,.1), transparent 68%); animation: answerRing .62s ease-out both }
+.answer-correct-fx .answer-fx-spark { animation: answerSpark .58s cubic-bezier(.2,.8,.3,1) both }
+.answer-correct-fx .spark-one { --spark-x: -76px; --spark-y: -42px; animation-delay: .02s }
+.answer-correct-fx .spark-two { --spark-x: 0px; --spark-y: -57px; animation-delay: .07s }
+.answer-correct-fx .spark-three { --spark-x: 78px; --spark-y: -38px; animation-delay: .11s }
+.answer-error-fx .answer-input { border-bottom-color: #ff453a; animation: answerReject .42s cubic-bezier(.36,.07,.19,.97) both }
+.answer-error-fx .answer-fx-ring { border-color: rgba(255,69,58,.36); background: radial-gradient(ellipse, rgba(255,69,58,.08), transparent 68%); animation: errorRing .44s ease-out both }
+@keyframes answerSettle { 0% { transform: translateY(0) scale(1) } 38% { transform: translateY(-5px) scale(1.018) } 100% { transform: translateY(0) scale(1) } }
+@keyframes answerRing { 0% { opacity: 0; transform: translateX(-50%) scale(.72) } 35% { opacity: 1 } 100% { opacity: 0; transform: translateX(-50%) scale(1.08) } }
+@keyframes answerSpark { 0% { opacity: 0; transform: translate(0,0) scale(.25) } 25% { opacity: 1 } 100% { opacity: 0; transform: translate(var(--spark-x), var(--spark-y)) scale(.6) } }
+@keyframes answerReject { 0%,100% { transform: translateX(0) } 18% { transform: translateX(-7px) } 36% { transform: translateX(6px) } 54% { transform: translateX(-4px) } 72% { transform: translateX(3px) } }
+@keyframes errorRing { 0% { opacity: 0; transform: translateX(-50%) scale(.8) } 35% { opacity: .9 } 100% { opacity: 0; transform: translateX(-50%) scale(1.04) } }
 .speak-btn { width: 40px; height: 40px; border: none; border-radius: 10px; background: rgba(0, 0, 0, .06); color: #86868b; display: flex; align-items: center; justify-content: center; cursor: pointer; flex-shrink: 0; transition: all .15s; margin-left: 8px }
 .speak-btn:hover { background: rgba(0, 0, 0, .18); color: #1d1d1f }
-.feedback-toast { position: fixed; bottom: 88px; left: 50%; transform: translateX(-50%) translateY(8px); z-index: 200; opacity: 0; transition: all .25s ease; pointer-events: none }
-.feedback-toast.fb-show { opacity: 1; transform: translateX(-50%) translateY(0) }
-.fb-inner { display: flex; align-items: center; gap: 8px; padding: 10px 22px; border-radius: 20px; font-size: 16px; font-weight: 600; backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px); white-space: nowrap }
-.fb-ok .fb-inner { background: rgba(91, 154, 94, .12); color: #248a3d; border: 1px solid rgba(91, 154, 94, .2) }
-.fb-err .fb-inner { background: rgba(201, 74, 74, .1); color: #d6281e; border: 1px solid rgba(201, 74, 74, .18) }
+.feedback-toast { position: fixed; bottom: 88px; left: 50%; transform: translateX(-50%) translateY(8px) scale(.92); z-index: 200; opacity: 0; transition: opacity .2s ease, transform .35s cubic-bezier(.2,1.25,.3,1); pointer-events: none }
+.feedback-toast.fb-show { opacity: 1; transform: translateX(-50%) translateY(0) scale(1) }
+.fb-inner { display: flex; align-items: center; gap: 9px; min-height: 44px; padding: 9px 20px; border-radius: 24px; font-size: 15px; font-weight: 650; letter-spacing: -.1px; backdrop-filter: blur(22px) saturate(1.25); -webkit-backdrop-filter: blur(22px) saturate(1.25); white-space: nowrap; box-shadow: 0 10px 30px rgba(0,0,0,.1), inset 0 1px 0 rgba(255,255,255,.7) }
+.fb-ok .fb-inner { background: rgba(241,255,245,.88); color: #248a3d; border: 1px solid rgba(52,199,89,.24); box-shadow: 0 12px 34px rgba(36,138,61,.14), inset 0 1px 0 rgba(255,255,255,.9) }
+.fb-ok .fb-inner svg { animation: feedbackCheck .48s cubic-bezier(.2,1.5,.3,1) both }
+.fb-err .fb-inner { background: rgba(255,247,246,.9); color: #d12f27; border: 1px solid rgba(255,69,58,.2); box-shadow: 0 12px 34px rgba(209,47,39,.11), inset 0 1px 0 rgba(255,255,255,.9) }
+.fb-err .fb-inner svg { animation: feedbackError .4s ease-out both }
 .fb-hint .fb-inner { background: rgba(232, 164, 74, .1); color: #ff9500; border: 1px solid rgba(232, 164, 74, .2) }
+@keyframes feedbackCheck { 0% { opacity: 0; transform: scale(.4) rotate(-18deg) } 100% { opacity: 1; transform: scale(1) rotate(0) } }
+@keyframes feedbackError { 0% { opacity: 0; transform: scale(.65) } 45% { opacity: 1; transform: scale(1.08) } 100% { transform: scale(1) } }
 
 /* Sentence specific */
 .chinese-area { padding: 0 0 16px; text-align: center; max-width: 700px; margin: 0 auto }
@@ -894,14 +989,17 @@ const pageTitle = computed(() => {
 .vis-word { font-size: 19px; color: #1d1d1f; font-weight: 500; padding: 0 4px; cursor: default }
 .punct-mark { font-size: 19px; color: #86868b; padding: 0 1px; user-select: none }
 .slot-wrapper, .vis-word { position: relative }
+.slot-wrapper.correct::after, .slot-item.correct::after { content: ''; position: absolute; inset: -5px; border-radius: 15px; border: 1.5px solid rgba(52,199,89,.45); pointer-events: none; animation: slotSuccessRing .58s ease-out both }
+.slot-wrapper.correct::before, .slot-item.correct::before { content: '✓'; position: absolute; z-index: 2; right: -7px; top: -10px; width: 18px; height: 18px; display: grid; place-items: center; border-radius: 50%; background: #34c759; color: white; font-size: 11px; font-weight: 800; box-shadow: 0 3px 10px rgba(52,199,89,.3); animation: slotCheckIn .46s cubic-bezier(.2,1.45,.3,1) both }
+@keyframes slotSuccessRing { 0% { opacity: 0; transform: scale(.82) } 38% { opacity: 1 } 100% { opacity: 0; transform: scale(1.16) } }
+@keyframes slotCheckIn { 0% { opacity: 0; transform: scale(.3) rotate(-22deg) } 100% { opacity: 1; transform: scale(1) rotate(0) } }
 .hint-above { font-size: 14px; color: #ff7a50; font-family: monospace; letter-spacing: 2px; text-align: center; margin-bottom: 4px; background: #fef3ee; border-radius: 6px; padding: 2px 8px; white-space: nowrap; line-height: 1.4 }
 .slot-input { padding: 10px 16px; border: 2px solid rgba(0, 0, 0, .18); border-radius: 10px; font-size: 19px; text-align: center; outline: 0; transition: all .15s; font-family: inherit; min-width: 56px; background: #fff; color: #1d1d1f }
 .slot-input:focus { border-color: #ff7a50 }
 .slot-input.correct { border-color: #34c759 !important; background: #f2fff4 !important; color: #34c759 !important; font-weight: 600; cursor: default }
 .slot-input.retry { border-color: #ff9500 !important; background: #fef9f0 !important; color: #ff9500 !important }
-.slot-item.shaking .slot-input { animation: shakeRed .5s ease }
-.slot-input.shaking { animation: shakeRed .5s ease }
-@keyframes shakeRed { 0%, 100% { border-color: rgba(0, 0, 0, .18) } 10%, 50%, 90% { border-color: #ff3b30; background: #fff0ef } }
+.slot-item.shaking .slot-input, .slot-wrapper.shaking .slot-input, .slot-input.shaking { animation: slotReject .44s cubic-bezier(.36,.07,.19,.97) }
+@keyframes slotReject { 0%,100% { transform: translateX(0); border-color: rgba(0,0,0,.18) } 18% { transform: translateX(-6px); border-color: #ff453a; background: #fff5f4 } 36% { transform: translateX(5px) } 54% { transform: translateX(-3px); border-color: #ff453a } 72% { transform: translateX(2px) } }
 
 /* Hover word card */
 .hover-word-card { position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); z-index: 200; background: #fff; color: #1d1d1f; padding: 12px 18px; border-radius: 12px; min-width: 180px; max-width: 320px; pointer-events: none; box-shadow: 0 12px 32px rgba(0, 0, 0, .1), 0 0 0 1px rgba(0, 0, 0, .04); animation: hoverCardIn .2s ease-out }
@@ -914,25 +1012,41 @@ const pageTitle = computed(() => {
 .hw-loading { color: #86868b; font-size: 12px }
 .hw-trans { color: #34c759; font-weight: 600; font-size: 16px; word-break: break-word }
 
-/* —— 底部 —— */
-.bottom-zone { flex-shrink: 0; display: flex; align-items: center; justify-content: center; gap: 28px; padding: 14px 0 18px }
-.si-label { font-size: 13px; font-weight: 600; color: #86868b; text-transform: uppercase; letter-spacing: 1.5px; flex-shrink: 0 }
-.si-items { display: flex; align-items: center; gap: 24px }
-.si-item { display: inline-flex; align-items: center; gap: 4px }
-.si-item kbd { display: inline-block; padding: 2px 8px; border: 1px solid rgba(0, 0, 0, .18); border-radius: 4px; background: rgba(0, 0, 0, .08); font-size: 13px; font-family: inherit; color: #86868b; font-weight: 500; white-space: nowrap }
-.si-item span { font-size: 13px; color: #86868b }
+/* —— 底部快捷指令 Dock —— */
+.bottom-zone { flex-shrink: 0; display: flex; align-items: center; justify-content: center; padding: 10px 16px 18px }
+.si-items { display: grid; grid-template-columns: repeat(5, 124px); align-items: center; padding: 5px 8px; border: 1px solid rgba(0,0,0,.075); border-radius: 16px; background: rgba(255,255,255,.56); box-shadow: 0 8px 24px rgba(0,0,0,.055), inset 0 1px 0 rgba(255,255,255,.9); backdrop-filter: blur(18px) saturate(1.25); -webkit-backdrop-filter: blur(18px) saturate(1.25) }
+.si-item { position: relative; display: flex; align-items: center; justify-content: center; gap: 7px; min-width: 0; min-height: 30px; padding: 0 10px; box-sizing: border-box }
+.si-item + .si-item::before { content: ''; position: absolute; left: 0; top: 50%; width: 1px; height: 16px; background: rgba(0,0,0,.07); transform: translateY(-50%) }
+.key-sequence { display: inline-flex; flex: 0 0 auto; align-items: center; justify-content: center; gap: 3px }
+.si-item kbd { display: grid; place-items: center; box-sizing: border-box; min-width: 23px; height: 22px; padding: 0 5px; border: 1px solid rgba(0,0,0,.13); border-bottom-color: rgba(0,0,0,.2); border-radius: 6px; background: linear-gradient(180deg, rgba(255,255,255,.98), rgba(245,245,247,.94)); box-shadow: 0 1px 1px rgba(0,0,0,.08), inset 0 -1px 0 rgba(0,0,0,.04); font-family: 'SF Mono', 'Cascadia Code', monospace; font-size: 11px; line-height: 1; color: #6e6e73; font-weight: 600; white-space: nowrap }
+.si-item kbd.key-wide { min-width: 32px; font-size: 10px; letter-spacing: -.2px }
+.si-item kbd.key-mod { min-width: 35px; padding-inline: 5px; font-size: 9px; letter-spacing: -.25px }
+.si-action { flex: 0 0 auto; font-size: 12px; line-height: 1; color: #86868b; font-weight: 500; white-space: nowrap }
 
 /* ====== 响应式 ====== */
 @media (max-width: 768px) {
-  .topbar { padding: 0 16px; height: 50px }
-  .page-title { font-size: 14px }
+  .topbar { min-height: 58px; padding: 9px 10px 2px; gap: 8px }
+  .nav-island { min-height: 44px; border-radius: 15px }
+  .context-island { gap: 7px; padding: 4px 10px 4px 4px }
+  .nav-back { width: 34px; height: 34px; border-radius: 11px }
+  .nav-divider, .nav-eyebrow { display: none }
+  .brand-signal { width: 16px }
+  .nav-context { min-width: 0 }
+  .page-title { max-width: 80px; overflow: hidden; text-overflow: ellipsis; font-size: 13px }
+  .status-island { gap: 6px; padding: 4px }
+  .level-orb { width: 34px; height: 34px }
+  .xp-context { display: none }
+  .logout-btn { width: 34px; height: 34px }
   .main-content, .card { padding: 40px 16px 16px }
   .top-zone { padding-top: 14px; max-width: 100% }
   .chinese-word { font-size: 34px !important }
   .answer-input { max-width: 260px; font-size: 24px }
-  .bottom-zone { gap: 12px; padding: 10px 0 14px }
-  .bottom-zone .si-items { gap: 10px; flex-wrap: wrap; justify-content: center }
-  .bottom-zone .si-label { display: none }
+  .bottom-zone { padding: 8px 8px 12px; overflow-x: auto; justify-content: flex-start; scrollbar-width: none }
+  .bottom-zone::-webkit-scrollbar { display: none }
+  .bottom-zone .si-items { grid-template-columns: repeat(5, 72px); margin: 0 auto; padding: 4px 6px; flex-shrink: 0 }
+  .si-item { display: flex; justify-content: center; padding: 0 4px }
+  .key-sequence { width: auto; min-width: 62px }
+  .si-action { display: none }
   .practice-engine { overflow: auto }
   .chinese-text { font-size: 26px }
   .slot-input { font-size: 18px; padding: 6px 10px }

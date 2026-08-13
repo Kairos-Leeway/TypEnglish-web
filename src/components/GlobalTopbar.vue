@@ -34,33 +34,47 @@ function logout() {
 
 <template>
   <header class="topbar topbar-global">
-    <div class="logo">
-      <span class="logo-icon">T</span>
-      <span class="logo-text">TypEnglish</span>
-    </div>
-    <nav class="topbar-nav">
-      <router-link
-        v-for="item in navItems"
-        :key="item.path"
-        :to="item.path"
-        :class="['nav-link', { active: isActive(item.path) }]"
-      >
-        {{ item.label }}
-        <strong
-          v-if="item.badge && errorBook.errorCount > 0"
-          class="nav-badge"
-        >{{ errorBook.errorCount }}</strong>
+    <div class="nav-capsule">
+      <router-link to="/" class="logo" aria-label="TypEnglish 首页">
+        <span class="logo-signal" aria-hidden="true"><i /><i /><i /></span>
+        <span class="logo-copy">
+          <strong class="logo-text">TypEnglish</strong>
+          <small>LEARN IN RHYTHM</small>
+        </span>
       </router-link>
-    </nav>
-    <div class="topbar-right">
-      <span class="user-name">{{ auth.user?.username }}</span>
-      <button class="logout-btn" @click="logout">退出</button>
+
+      <nav class="topbar-nav" aria-label="主导航">
+        <router-link
+          v-for="item in navItems"
+          :key="item.path"
+          :to="item.path"
+          :class="['nav-link', { active: isActive(item.path) }]"
+        >
+          <span>{{ item.label }}</span>
+          <strong
+            v-if="item.badge && errorBook.errorCount > 0"
+            class="nav-badge"
+          >{{ errorBook.errorCount }}</strong>
+        </router-link>
+      </nav>
+
+      <div class="topbar-right">
+        <span class="user-avatar" aria-hidden="true">{{ auth.user?.username?.slice(0, 1).toUpperCase() || 'T' }}</span>
+        <span class="user-meta">
+          <small>LEARNER</small>
+          <strong class="user-name">{{ auth.user?.username }}</strong>
+        </span>
+        <button class="logout-btn" @click="logout" aria-label="退出登录" title="退出登录">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M10 17l5-5-5-5"/><path d="M15 12H3"/><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/></svg>
+        </button>
+      </div>
     </div>
   </header>
 </template>
 
 <style scoped>
-.user-name{font-size:14px;color:#2d2422}
-.logout-btn{padding:6px 14px;border:1px solid rgba(184,160,151,.18);border-radius:8px;background:rgba(255,255,255,.5);color:#b8a097;font-size:13px;cursor:pointer;transition:all .15s}
-.logout-btn:hover{border-color:#c94a4a;color:#c94a4a}
+.logo-signal i { animation: homeSignal 1.8s ease-in-out infinite }
+.logo-signal i:nth-child(1) { animation-delay: -.3s }
+.logo-signal i:nth-child(3) { animation-delay: -.65s }
+@keyframes homeSignal { 0%, 100% { transform: scaleY(.68); opacity: .68 } 50% { transform: scaleY(1); opacity: 1 } }
 </style>
