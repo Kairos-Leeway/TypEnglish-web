@@ -5,6 +5,7 @@ import api from '../api'
 import { speak } from '../composables/useTts'
 import { useErrorBookStore } from '../stores/errorBook'
 import GlobalTopbar from '../components/GlobalTopbar.vue'
+import { filterSentenceReviewsByMode, reviewSentenceMode, type ReviewSentenceMode } from '../utils/reviewPractice'
 
 const router = useRouter()
 const errorBook = useErrorBookStore()
@@ -67,11 +68,12 @@ function switchTab(tab: 'word' | 'sentence') {
 // 分页
 const totalWordPages = computed(() => Math.ceil(wordTotal.value / pageSize))
 const totalSentPages = computed(() => Math.ceil(sentTotal.value / pageSize))
+const translationReviewCount = computed(() => filterSentenceReviewsByMode(sentenceErrors.value, 'translation').length)
+const clozeReviewCount = computed(() => filterSentenceReviewsByMode(sentenceErrors.value, 'cloze').length)
 
 // ====== 单词批量练习 → 路由到拼写练习页面 ======
 function startWordPractice() {
   const shuffled = [...wordErrors.value].sort(() => Math.random() - 0.5)
-  console.log('[ErrorBook] wordErrors:', wordErrors.value.length, 'items')
   const batchSize = Math.min(30, Math.max(10, shuffled.length))
   const batch = shuffled.slice(0, batchSize)
   // 提取 word 对象（拼写练习页面需要的格式：{id, word, translation, phonetic}）
@@ -80,18 +82,21 @@ function startWordPractice() {
   router.push('/practice/review?review=word')
 }
 
-function startSentenceBatchPractice() {
-  const shuffled = [...sentenceErrors.value].sort(() => Math.random() - 0.5)
-  const batchSize = Math.min(15, Math.max(10, shuffled.length))
+function startSentenceBatchPractice(practiceMode: ReviewSentenceMode) {
+  const sameModeItems = filterSentenceReviewsByMode(sentenceErrors.value, practiceMode)
+  const shuffled = [...sameModeItems].sort(() => Math.random() - 0.5)
+  const batchSize = Math.min(15, shuffled.length)
   const batch = shuffled.slice(0, batchSize)
+  if (batch.length === 0) return
   localStorage.setItem('reviewSentences', JSON.stringify(batch))
-  router.push('/practice/review?review=sentence')
+  router.push({ path: '/practice/review', query: { review: 'sentence', mode: practiceMode } })
 }
 
 // 单个句子重练也复用练习页面
 function startSentenceRepractice(se: any) {
+  const practiceMode = reviewSentenceMode(se.mode)
   localStorage.setItem('reviewSentences', JSON.stringify([se]))
-  router.push('/practice/review?review=sentence')
+  router.push({ path: '/practice/review', query: { review: 'sentence', mode: practiceMode } })
 }
 
 
@@ -210,7 +215,8 @@ onMounted(async () => {
           <span class="list-info">第 {{sentPage}} 页 · 共 {{sentTotal}} 句</span>
           <div style="display:flex;gap:10px">
             <button class="action-btn danger" @click="showClearConfirm('sentence')">全部清空</button>
-            <button class="action-btn primary" @click="startSentenceBatchPractice">批量练习 (抽{{Math.max(10,sentenceErrors.length)}}句)</button>
+            <button v-if="translationReviewCount > 0" class="action-btn primary" @click="startSentenceBatchPractice('translation')">句子练习 ({{Math.min(15, translationReviewCount)}}句)</button>
+            <button v-if="clozeReviewCount > 0" class="action-btn primary" @click="startSentenceBatchPractice('cloze')">完形练习 ({{Math.min(15, clozeReviewCount)}}句)</button>
           </div>
         </div>
         <div class="scroll-body">

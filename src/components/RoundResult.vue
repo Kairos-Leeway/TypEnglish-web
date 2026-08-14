@@ -19,7 +19,8 @@ interface SentenceResult {
 const props = defineProps<{
   mode: 'spelling' | 'translation' | 'cloze'
   completed: boolean
-  isReviewSentence: boolean
+  isReview: boolean
+  canRestart: boolean
   words: any[]
   results: SpellingResult[]
   sentences: any[]
@@ -204,10 +205,10 @@ const listItems = computed(() => {
 
       <!-- actions -->
       <div class="result-actions">
-        <button v-if="isReviewSentence" class="action-btn primary" @click="emit('home')">返回错题本</button>
+        <button v-if="isReview" class="action-btn primary" @click="emit('home')">返回错题本</button>
         <button v-else class="action-btn primary" @click="emit('home')">返回首页</button>
-        <button class="action-btn secondary" @click="emit('restart')">再来一轮</button>
-        <button v-if="wrong > 0 && mode === 'spelling'" class="action-btn outline" @click="emit('review-wrong')">
+        <button v-if="canRestart" class="action-btn secondary" @click="emit('restart')">再来一轮</button>
+        <button v-if="!isReview && wrong > 0 && mode === 'spelling'" class="action-btn outline" @click="emit('review-wrong')">
           复习错题 ({{ wrong }})
         </button>
       </div>

@@ -16,6 +16,7 @@ import { useAuthStore } from '../stores/auth'
 import RoundResult from '../components/RoundResult.vue'
 import CelebrationFrame from '../components/CelebrationFrame.vue'
 import { sentenceHintLabel, sentenceSlotWidth } from '../utils/sentenceSlotPresentation'
+import { incorrectItems, isPunctuationToken, reviewResultVisibility, reviewSentenceMode } from '../utils/reviewPractice'
 
 const route = useRoute()
 const router = useRouter()
@@ -35,7 +36,7 @@ const pathToMode: Record<string, PracticeMode> = {
 const mode = computed<PracticeMode>(() => {
   // review routes may come via /practice/review with ?review=word or ?review=sentence
   const r = route.query.review as string
-  if (r === 'sentence') return 'translation'
+  if (r === 'sentence') return reviewSentenceMode(route.query.mode)
   if (r === 'word') return 'spelling'
   return pathToMode[route.path] || 'spelling'
 })
@@ -246,7 +247,7 @@ function buildSentenceSlotsSnapshot(): SentenceResult['slots'] {
 function recordCurrentSentence(correct: boolean) {
   const sent = sentences.value[currentIndex.value]
   if (!sent) return
-  const key = `idx-${currentIndex.value}`
+  const key = sent.id ?? `idx-${currentIndex.value}`
   const already = sentenceResults.value.find((r) => r.sentenceId === key)
   if (already) return
   sentenceResults.value.push({
@@ -321,10 +322,25 @@ async function loadData() {
         const raw = localStorage.getItem('reviewSentences')
         if (!raw) { finished.value = true; loading.value = false; return }
         reviewData.value = JSON.parse(raw)
-        sentences.value = reviewData.value.map((se: any) => ({
-          id: se.sentenceId, english: se.english, chinese: se.chinese,
-          words: se.slots.map((s: any) => ({ index: s.index, word: s.word, wordId: null, punctuation: s.visible || false, translation: undefined, phonetic: undefined }))
-        }))
+        sentences.value = reviewData.value.map((se: any) => {
+          let reviewSlots = Array.isArray(se.slots) ? se.slots : []
+          if (reviewSlots.length === 0 && typeof se.slotResults === 'string') {
+            try { reviewSlots = JSON.parse(se.slotResults) } catch { reviewSlots = [] }
+          }
+          return {
+            id: se.id ?? se.sentenceId,
+            english: se.english,
+            chinese: se.chinese,
+            words: reviewSlots.map((s: any) => ({
+              index: s.index,
+              word: s.word,
+              wordId: s.wordId ?? null,
+              punctuation: isPunctuationToken(s.word),
+              translation: s.translation,
+              phonetic: s.phonetic,
+            })),
+          }
+        })
       } else {
         const { data } = await api.get('/sentences', { params: { count: requestedCount.value } })
         sentences.value = data
@@ -374,7 +390,13 @@ function submitBatchResults() {
   if (isReviewSentence.value) {
     const se = reviewData.value[currentIndex.value]
     if (!se) return
-    const r = slots.value.map(s => ({ index: s.index, word: s.word, visible: s.punctuation, correct: s.status === 'correct', answer: s.userInput || '' }))
+    const r = slots.value.map(s => ({
+      index: s.index,
+      word: s.word,
+      visible: reviewResultVisibility(reviewSentenceMode(mode.value), s),
+      correct: s.status === 'correct',
+      answer: s.userInput || '',
+    }))
     const hiddenSlots = r.filter(s => !s.visible)
     const c = hiddenSlots.filter(s => s.correct).length
     api.put(`/errorbook/sentences/${se.id}`, { totalSlots: hiddenSlots.length, correctSlots: c, slotResults: r }).catch(() => { })
@@ -401,8 +423,13 @@ function submitSentenceError() {
 }
 
 function skipSentence() {
-  if (isReviewSentence.value) { submitBatchResults(); endSession(true); return }
   recordCurrentSentence(false)
+  if (isReviewSentence.value) {
+    submitBatchResults()
+    if (currentIndex.value >= sentences.value.length - 1) endSession(true)
+    else nextItem()
+    return
+  }
   submitSentenceError()
   if (currentIndex.value >= sentences.value.length - 1) { endSession(true); return }
   nextItem()
@@ -512,6 +539,20 @@ function endNow() {
 
 function restart() {
   showCelebration.value = false
+  if (isReviewWord.value) {
+    retryWrong()
+    return
+  }
+  if (isReviewSentence.value) {
+    const remaining = incorrectItems(reviewData.value, sentenceResults.value)
+    if (remaining.length === 0) return
+    localStorage.setItem('reviewSentences', JSON.stringify(remaining))
+    reviewData.value = remaining
+    sentences.value = []; slots.value = []; sentenceResults.value = []
+    finished.value = false; completed.value = false; currentIndex.value = 0; correctCount.value = 0
+    loadData()
+    return
+  }
   finished.value = false; completed.value = false; currentIndex.value = 0; correctCount.value = 0
   if (isSentenceMode.value) { sentences.value = []; slots.value = []; sentenceResults.value = [] }
   else { words.value = []; userInput.value = ''; results.value = []; attempts.value = 0; showHint.value = false; showAnswer.value = false; mustRetype.value = false }
@@ -519,7 +560,7 @@ function restart() {
 }
 
 function goHome() {
-  if (isReviewSentence.value) router.push('/errorbook')
+  if (isReviewWord.value || isReviewSentence.value) router.push('/errorbook')
   else router.push('/')
 }
 
@@ -587,6 +628,11 @@ const pageTitle = computed(() => {
   return 'TypEnglish · 句子翻译'
 })
 const practiceName = computed(() => pageTitle.value.replace('TypEnglish · ', ''))
+const canRestart = computed(() => {
+  if (isReviewSentence.value) return sentenceResults.value.some(result => !result.correct)
+  if (isReviewWord.value) return results.value.some(result => !result.correct)
+  return true
+})
 </script>
 
 <template>
@@ -640,7 +686,8 @@ const practiceName = computed(() => pageTitle.value.replace('TypEnglish · ', ''
       v-else-if="finished"
       :mode="mode"
       :completed="completed"
-      :is-review-sentence="isReviewSentence"
+      :is-review="isReviewWord || isReviewSentence"
+      :can-restart="canRestart"
       :words="words"
       :results="results"
       :sentences="sentences"
@@ -1016,16 +1063,16 @@ const practiceName = computed(() => pageTitle.value.replace('TypEnglish · ', ''
 /* Sentence specific */
 .chinese-area { padding: 0 0 16px; text-align: center; max-width: 700px; margin: 0 auto }
 .chinese-text { font-size: 26px; font-weight: 600; color: #1d1d1f; line-height: 1.7; margin: 0; word-break: break-word; overflow-wrap: break-word }
-.slots-area { display: flex; flex-wrap: wrap; gap: 8px; justify-content: center; align-items: flex-start; padding: 0 0 8px; max-width: 700px; margin: 0 auto }
-.slot-item { position: relative; display: flex; flex-direction: column; align-items: center; gap: 2px }
-.slots-line { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; justify-content: center; line-height: 2.6; padding: 0 0 8px }
-.vis-word { font-size: 19px; color: #1d1d1f; font-weight: 500; padding: 0 4px; cursor: default }
+.slots-area { display: flex; flex-wrap: wrap; column-gap: 8px; row-gap: 10px; justify-content: center; align-items: center; padding: 0 0 8px; max-width: 700px; margin: 0 auto }
+.slots-line { display: flex; flex-wrap: wrap; column-gap: 6px; row-gap: 10px; align-items: center; justify-content: center; padding: 0 0 8px }
+.slot-wrapper, .slot-item { position: relative; display: inline-flex; align-items: center; justify-content: center; min-height: 46px; line-height: 1 }
+.vis-word, .punct-mark { display: inline-flex; align-items: center; min-height: 46px; line-height: 1.25 }
+.vis-word { position: relative; font-size: 19px; color: #1d1d1f; font-weight: 500; padding: 0 4px; cursor: default }
 .punct-mark { font-size: 19px; color: #86868b; padding: 0 1px; user-select: none }
-.slot-wrapper, .vis-word { position: relative }
 .slot-wrapper.correct::after, .slot-item.correct::after { content: ''; position: absolute; inset: -5px; border-radius: 15px; border: 1.5px solid rgba(52,199,89,.45); pointer-events: none; animation: slotSuccessRing .58s ease-out both }
 @keyframes slotSuccessRing { 0% { opacity: 0; transform: scale(.82) } 38% { opacity: 1 } 100% { opacity: 0; transform: scale(1.16) } }
 .hint-above { position: absolute; z-index: 3; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%); font-size: 12px; color: #d96843; font-family: 'SF Mono', Consolas, monospace; letter-spacing: 1px; text-align: center; background: rgba(255,248,244,.96); border: 1px solid rgba(232,115,74,.14); border-radius: 7px; padding: 3px 8px; white-space: nowrap; line-height: 1.4; pointer-events: none; box-shadow: 0 5px 14px rgba(84,49,35,.06) }
-.slot-input { box-sizing: border-box; padding: 10px 18px; border: 2px solid rgba(0, 0, 0, .18); border-radius: 10px; font-size: 19px; text-align: center; outline: 0; transition: width .18s ease, border-color .15s ease, background-color .15s ease, box-shadow .15s ease; font-family: inherit; min-width: 76px; background: #fff; color: #1d1d1f }
+.slot-input { box-sizing: border-box; height: 46px; padding: 0 18px; border: 2px solid rgba(0, 0, 0, .18); border-radius: 10px; font-size: 19px; line-height: 1.2; text-align: center; outline: 0; transition: width .18s ease, border-color .15s ease, background-color .15s ease, box-shadow .15s ease; font-family: inherit; min-width: 76px; background: #fff; color: #1d1d1f }
 .slot-input:focus { border-color: #ff7a50; box-shadow: 0 0 0 4px rgba(255,122,80,.1) }
 .slot-input.correct { border-color: #2fbd59 !important; background: rgba(239,252,243,.82) !important; color: #238a42 !important; font-weight: 650; cursor: default; box-shadow: inset 0 -2px 0 rgba(47,189,89,.08) }
 .slot-input.retry { border-color: #ff9500 !important; background: #fef9f0 !important; color: #ff9500 !important }
@@ -1080,11 +1127,13 @@ const practiceName = computed(() => pageTitle.value.replace('TypEnglish · ', ''
   .si-action { display: none }
   .practice-engine { overflow: auto }
   .chinese-text { font-size: 26px }
-  .slot-input { font-size: 18px; padding: 6px 10px }
+  .slot-wrapper, .slot-item, .vis-word, .punct-mark { min-height: 38px }
+  .slot-input { height: 38px; font-size: 18px; padding: 0 10px }
 }
 @media (max-width: 360px) {
   .chinese-text { font-size: 22px }
-  .slot-input { font-size: 14px; min-width: 44px; padding: 5px 8px }
+  .slot-wrapper, .slot-item, .vis-word, .punct-mark { min-height: 34px }
+  .slot-input { height: 34px; font-size: 14px; min-width: 44px; padding: 0 8px }
   .card-top-row { flex-wrap: wrap; gap: 6px }
 }
 
