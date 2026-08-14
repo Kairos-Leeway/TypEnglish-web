@@ -15,6 +15,7 @@ import { useXp } from '../composables/useXp'
 import { useAuthStore } from '../stores/auth'
 import RoundResult from '../components/RoundResult.vue'
 import CelebrationFrame from '../components/CelebrationFrame.vue'
+import { sentenceHintLabel, sentenceSlotWidth } from '../utils/sentenceSlotPresentation'
 
 const route = useRoute()
 const router = useRouter()
@@ -157,12 +158,26 @@ const reviewData = ref<any[]>([])
 
 const hoveredIdx = ref<number | null>(null)
 const hoveredDetail = ref<WordDetail | null>(null)
+const focusedSlotIndex = ref<number | null>(null)
 const hoverTimer = ref<ReturnType<typeof setTimeout> | null>(null)
 const hideTimer = ref<ReturnType<typeof setTimeout> | null>(null)
+const hoverCardStyle = ref<Record<string, string>>({})
 
-async function onWordHover(slot: WordSlot) {
+async function onWordHover(slot: WordSlot, event: MouseEvent) {
   if (hoverTimer.value) clearTimeout(hoverTimer.value)
   if (hideTimer.value) { clearTimeout(hideTimer.value); hideTimer.value = null }
+  const rect = (event.currentTarget as HTMLElement).getBoundingClientRect()
+  const cardWidth = Math.min(280, window.innerWidth - 24)
+  const targetCenter = rect.left + rect.width / 2
+  const cardCenter = Math.min(
+    window.innerWidth - cardWidth / 2 - 12,
+    Math.max(cardWidth / 2 + 12, targetCenter),
+  )
+  hoverCardStyle.value = {
+    left: `${cardCenter}px`,
+    top: `${rect.top - 10}px`,
+    '--arrow-left': `${Math.min(cardWidth - 14, Math.max(14, targetCenter - cardCenter + cardWidth / 2))}px`,
+  }
   hoveredIdx.value = slot.index; hoveredDetail.value = null
   hoverTimer.value = setTimeout(async () => {
     const detail = await lookup(language.value, slot.word)
@@ -197,7 +212,12 @@ function buildSlots(wordsData: Array<{ index: number; word: string; wordId: numb
 
 function initSlots(wordsData: Array<{ index: number; word: string; wordId: number | null }>) {
   slots.value = buildSlots(wordsData)
+  focusedSlotIndex.value = null
   nextTick(() => { (document.querySelector('.slot-input') as HTMLInputElement)?.focus() })
+}
+
+function onSlotFocus(slot: WordSlot) {
+  if (slot.status !== 'correct') focusedSlotIndex.value = slot.index
 }
 
 function moveToSlot(fromIdx: number, dir: number) {
@@ -282,10 +302,7 @@ function onSlotKeydown(e: KeyboardEvent, slot: WordSlot, idx: number) {
 
 function hintLabel(slot: WordSlot): string {
   if (slot.hintLevel === 0 || slot.status === 'correct') return ''
-  const w = slot.word
-  const shown = w.substring(0, slot.hintLevel)
-  const hidden = '_ '.repeat(w.length - slot.hintLevel).trim()
-  return `${shown} ${hidden}`
+  return sentenceHintLabel(slot.word, slot.hintLevel)
 }
 
 // ============================================================
@@ -441,14 +458,30 @@ async function submitWord() {
 }
 
 function showHintForSentence() {
-  const s = slots.value.find(s => {
-    const isBlank = mode.value === 'cloze' ? !s.visible : !s.punctuation
-    return isBlank && (s.status === 'pending' || s.status === 'retry')
+  const isHintable = (slot: WordSlot) => {
+    const isBlank = mode.value === 'cloze' ? !slot.visible : !slot.punctuation
+    return isBlank && slot.status !== 'correct'
+  }
+  const focusedSlot = slots.value.find(slot => slot.index === focusedSlotIndex.value)
+  const s = focusedSlot && isHintable(focusedSlot) ? focusedSlot : slots.value.find(slot => {
+    const isBlank = mode.value === 'cloze' ? !slot.visible : !slot.punctuation
+    return isBlank && slot.status !== 'correct'
   })
-  if (!s) return
+  if (!s) {
+    showFeedback('hint', '没有需要提示的空格')
+    return
+  }
+  focusedSlotIndex.value = s.index
   s.hintLevel = Math.min(s.hintLevel + 1, s.word.length)
-  const el = document.querySelector(`[data-slot="${s.index}"]`) as HTMLInputElement
-  if (el) el.focus()
+  showFeedback('hint', `已提示当前空格的第 ${s.hintLevel} 个字母`)
+  nextTick(() => {
+    const el = document.querySelector(`[data-slot="${s.index}"]`) as HTMLInputElement
+    el?.focus()
+  })
+}
+
+function slotWidth(slot: WordSlot): string {
+  return `${sentenceSlotWidth(slot.word, slot.userInput)}px`
 }
 
 function toggleHint() { if (showHint.value || showAnswer.value) return; showHint.value = true }
@@ -709,7 +742,7 @@ const practiceName = computed(() => pageTitle.value.replace('TypEnglish · ', ''
           <div class="card-top-row">
             <span class="counter">{{ currentIndex + 1 }}/{{ sentences.length }}</span>
             <div class="top-actions">
-              <button class="tool-btn hint" @click="showHintForSentence" title="显示提示 (Ctrl+I)">
+              <button class="tool-btn hint" @click="showHintForSentence" title="提示当前选中的空格 (Ctrl+I)">
                 <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3"/></svg>
                 <span>提示</span>
               </button>
@@ -740,10 +773,10 @@ const practiceName = computed(() => pageTitle.value.replace('TypEnglish · ', ''
               <!-- Punctuation -->
               <span v-if="s.punctuation" class="punct-mark">{{ s.word }}</span>
               <!-- Hidden blank (cloze) -->
-              <span v-else-if="mode === 'cloze' && !s.visible" :class="['slot-wrapper', s.status, { shaking: s.shaking }]" @mouseenter="s.status === 'correct' ? onWordHover(s) : null" @mouseleave="s.status === 'correct' ? onWordLeave() : null">
+              <span v-else-if="mode === 'cloze' && !s.visible" :class="['slot-wrapper', s.status, { shaking: s.shaking }]" @mouseenter="s.status === 'correct' ? onWordHover(s, $event) : null" @mouseleave="s.status === 'correct' ? onWordLeave() : null">
                 <div v-if="hintLabel(s)" class="hint-above">{{ hintLabel(s) }}</div>
-                <input :data-slot="s.index" v-model="s.userInput" :class="['slot-input', s.status, { shaking: s.shaking }]" :disabled="s.status === 'correct'" :style="{ width: Math.max(s.word.length * 14 + 20, 56) + 'px' }" spellcheck="false" autocomplete="off" @keydown="onSlotKeydown($event, s, i)" />
-                <div v-if="hoveredIdx === s.index && s.status === 'correct'" class="hover-word-card" :class="{ loaded: hoveredDetail }">
+                <input :data-slot="s.index" v-model="s.userInput" :class="['slot-input', s.status, { shaking: s.shaking }]" :disabled="s.status === 'correct'" :style="{ width: slotWidth(s) }" spellcheck="false" autocomplete="off" @focus="onSlotFocus(s)" @keydown="onSlotKeydown($event, s, i)" />
+                <div v-if="hoveredIdx === s.index && s.status === 'correct'" class="hover-word-card" :class="{ loaded: hoveredDetail }" :style="hoverCardStyle">
                   <div class="hw-top"><span class="hw-word">{{ s.word }}</span><span v-if="hoveredDetail?.partOfSpeech" class="hw-pos">{{ hoveredDetail.partOfSpeech }}</span></div>
                   <div v-if="hoveredDetail?.phonetic" class="hw-phonetic">/{{ hoveredDetail.phonetic }}/</div>
                   <div v-if="!hoveredDetail" class="hw-loading">查询中...</div>
@@ -751,9 +784,9 @@ const practiceName = computed(() => pageTitle.value.replace('TypEnglish · ', ''
                 </div>
               </span>
               <!-- Visible word (cloze) -->
-              <span v-else-if="mode === 'cloze' && s.visible" class="vis-word" @mouseenter="onWordHover(s)" @mouseleave="onWordLeave">
+              <span v-else-if="mode === 'cloze' && s.visible" class="vis-word" @mouseenter="onWordHover(s, $event)" @mouseleave="onWordLeave">
                 {{ s.word }}
-                <div v-if="hoveredIdx === s.index" class="hover-word-card" :class="{ loaded: hoveredDetail }">
+                <div v-if="hoveredIdx === s.index" class="hover-word-card" :class="{ loaded: hoveredDetail }" :style="hoverCardStyle">
                   <div class="hw-top"><span class="hw-word">{{ s.word }}</span><span v-if="hoveredDetail?.partOfSpeech" class="hw-pos">{{ hoveredDetail.partOfSpeech }}</span></div>
                   <div v-if="hoveredDetail?.phonetic" class="hw-phonetic">/{{ hoveredDetail.phonetic }}/</div>
                   <div v-if="!hoveredDetail" class="hw-loading">查询中...</div>
@@ -761,10 +794,10 @@ const practiceName = computed(() => pageTitle.value.replace('TypEnglish · ', ''
                 </div>
               </span>
               <!-- Translation mode: all non-punctuation are blanks -->
-              <div v-else :class="['slot-item', s.status, { shaking: s.shaking }]" @mouseenter="s.status === 'correct' ? onWordHover(s) : null" @mouseleave="s.status === 'correct' ? onWordLeave() : null">
+              <div v-else :class="['slot-item', s.status, { shaking: s.shaking }]" @mouseenter="s.status === 'correct' ? onWordHover(s, $event) : null" @mouseleave="s.status === 'correct' ? onWordLeave() : null">
                 <div v-if="hintLabel(s)" class="hint-above">{{ hintLabel(s) }}</div>
-                <input :data-slot="s.index" v-model="s.userInput" class="slot-input" :class="s.status" :disabled="s.status === 'correct'" :style="{ width: Math.max(s.word.length * 14 + 20, 60) + 'px' }" spellcheck="false" autocomplete="off" @keydown="onSlotKeydown($event, s, i)" />
-                <div v-if="hoveredIdx === s.index && s.status === 'correct'" class="hover-word-card" :class="{ loaded: hoveredDetail }">
+                <input :data-slot="s.index" v-model="s.userInput" class="slot-input" :class="s.status" :disabled="s.status === 'correct'" :style="{ width: slotWidth(s) }" spellcheck="false" autocomplete="off" @focus="onSlotFocus(s)" @keydown="onSlotKeydown($event, s, i)" />
+                <div v-if="hoveredIdx === s.index && s.status === 'correct'" class="hover-word-card" :class="{ loaded: hoveredDetail }" :style="hoverCardStyle">
                   <div class="hw-top"><span class="hw-word">{{ s.word }}</span><span v-if="hoveredDetail?.partOfSpeech" class="hw-pos">{{ hoveredDetail.partOfSpeech }}</span></div>
                   <div v-if="hoveredDetail?.phonetic" class="hw-phonetic">/{{ hoveredDetail.phonetic }}/</div>
                   <div v-if="!hoveredDetail" class="hw-loading">查询中...</div>
@@ -990,21 +1023,19 @@ const practiceName = computed(() => pageTitle.value.replace('TypEnglish · ', ''
 .punct-mark { font-size: 19px; color: #86868b; padding: 0 1px; user-select: none }
 .slot-wrapper, .vis-word { position: relative }
 .slot-wrapper.correct::after, .slot-item.correct::after { content: ''; position: absolute; inset: -5px; border-radius: 15px; border: 1.5px solid rgba(52,199,89,.45); pointer-events: none; animation: slotSuccessRing .58s ease-out both }
-.slot-wrapper.correct::before, .slot-item.correct::before { content: '✓'; position: absolute; z-index: 2; right: -7px; top: -10px; width: 18px; height: 18px; display: grid; place-items: center; border-radius: 50%; background: #34c759; color: white; font-size: 11px; font-weight: 800; box-shadow: 0 3px 10px rgba(52,199,89,.3); animation: slotCheckIn .46s cubic-bezier(.2,1.45,.3,1) both }
 @keyframes slotSuccessRing { 0% { opacity: 0; transform: scale(.82) } 38% { opacity: 1 } 100% { opacity: 0; transform: scale(1.16) } }
-@keyframes slotCheckIn { 0% { opacity: 0; transform: scale(.3) rotate(-22deg) } 100% { opacity: 1; transform: scale(1) rotate(0) } }
-.hint-above { font-size: 14px; color: #ff7a50; font-family: monospace; letter-spacing: 2px; text-align: center; margin-bottom: 4px; background: #fef3ee; border-radius: 6px; padding: 2px 8px; white-space: nowrap; line-height: 1.4 }
-.slot-input { padding: 10px 16px; border: 2px solid rgba(0, 0, 0, .18); border-radius: 10px; font-size: 19px; text-align: center; outline: 0; transition: all .15s; font-family: inherit; min-width: 56px; background: #fff; color: #1d1d1f }
-.slot-input:focus { border-color: #ff7a50 }
-.slot-input.correct { border-color: #34c759 !important; background: #f2fff4 !important; color: #34c759 !important; font-weight: 600; cursor: default }
+.hint-above { position: absolute; z-index: 3; left: 50%; bottom: calc(100% + 6px); transform: translateX(-50%); font-size: 12px; color: #d96843; font-family: 'SF Mono', Consolas, monospace; letter-spacing: 1px; text-align: center; background: rgba(255,248,244,.96); border: 1px solid rgba(232,115,74,.14); border-radius: 7px; padding: 3px 8px; white-space: nowrap; line-height: 1.4; pointer-events: none; box-shadow: 0 5px 14px rgba(84,49,35,.06) }
+.slot-input { box-sizing: border-box; padding: 10px 18px; border: 2px solid rgba(0, 0, 0, .18); border-radius: 10px; font-size: 19px; text-align: center; outline: 0; transition: width .18s ease, border-color .15s ease, background-color .15s ease, box-shadow .15s ease; font-family: inherit; min-width: 76px; background: #fff; color: #1d1d1f }
+.slot-input:focus { border-color: #ff7a50; box-shadow: 0 0 0 4px rgba(255,122,80,.1) }
+.slot-input.correct { border-color: #2fbd59 !important; background: rgba(239,252,243,.82) !important; color: #238a42 !important; font-weight: 650; cursor: default; box-shadow: inset 0 -2px 0 rgba(47,189,89,.08) }
 .slot-input.retry { border-color: #ff9500 !important; background: #fef9f0 !important; color: #ff9500 !important }
 .slot-item.shaking .slot-input, .slot-wrapper.shaking .slot-input, .slot-input.shaking { animation: slotReject .44s cubic-bezier(.36,.07,.19,.97) }
 @keyframes slotReject { 0%,100% { transform: translateX(0); border-color: rgba(0,0,0,.18) } 18% { transform: translateX(-6px); border-color: #ff453a; background: #fff5f4 } 36% { transform: translateX(5px) } 54% { transform: translateX(-3px); border-color: #ff453a } 72% { transform: translateX(2px) } }
 
 /* Hover word card */
-.hover-word-card { position: absolute; bottom: calc(100% + 10px); left: 50%; transform: translateX(-50%); z-index: 200; background: #fff; color: #1d1d1f; padding: 12px 18px; border-radius: 12px; min-width: 180px; max-width: 320px; pointer-events: none; box-shadow: 0 12px 32px rgba(0, 0, 0, .1), 0 0 0 1px rgba(0, 0, 0, .04); animation: hoverCardIn .2s ease-out }
-.hover-word-card::after { content: ''; position: absolute; top: 100%; left: 50%; transform: translateX(-50%); border: 7px solid transparent; border-top-color: #fff }
-@keyframes hoverCardIn { 0% { opacity: 0; transform: translateX(-50%) translateY(6px) scale(.94) } 100% { opacity: 1; transform: translateX(-50%) translateY(0) scale(1) } }
+.hover-word-card { position: fixed; bottom: auto; width: min(280px, calc(100vw - 24px)); box-sizing: border-box; transform: translate(-50%, -100%); z-index: 200; background: #fff; color: #1d1d1f; padding: 12px 18px; border-radius: 12px; pointer-events: none; box-shadow: 0 12px 32px rgba(0, 0, 0, .1), 0 0 0 1px rgba(0, 0, 0, .04); animation: hoverCardIn .2s ease-out }
+.hover-word-card::after { content: ''; position: absolute; top: 100%; left: var(--arrow-left, 50%); transform: translateX(-50%); border: 7px solid transparent; border-top-color: #fff }
+@keyframes hoverCardIn { 0% { opacity: 0; transform: translate(-50%, calc(-100% + 6px)) scale(.94) } 100% { opacity: 1; transform: translate(-50%, -100%) scale(1) } }
 .hw-top { display: flex; align-items: center; gap: 6px; margin-bottom: 2px }
 .hw-word { font-weight: 700; color: #1d1d1f; font-size: 17px; word-break: break-word }
 .hw-pos { font-size: 13px; color: #86868b; white-space: nowrap }
