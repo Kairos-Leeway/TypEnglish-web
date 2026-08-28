@@ -2,14 +2,18 @@
 import { ref, nextTick, onUnmounted } from 'vue'
 import { useRouter } from 'vue-router'
 import MarkdownRenderer from '../components/MarkdownRenderer.vue'
+import AiFormCard from '../components/AiFormCard.vue'
 import ConversationSidebar from '../components/ConversationSidebar.vue'
 import GlobalTopbar from '../components/GlobalTopbar.vue'
 import api from '../api'
-import type { ConversationMessage } from '../api/types'
+import type { ChatToolAction, ChatToolRun, ConversationMessage } from '../api/types'
+import {
+  buildQuestionFormSubmission,
+  formSubmissionToolId,
+  visibleChatContent,
+} from '../utils/aiFormSubmission'
 
-type ToolAction = { type: string; label: string; route: string; query?: Record<string, string | number> }
-type ToolRun = { id: string; phase: 'start'|'done'|'error'; name: string; title: string; summary?: string; action?: ToolAction }
-type ChatMessage = { role: string; content: string; tools?: ToolRun[] }
+type ChatMessage = { role: ConversationMessage['role']; content: string; tools?: ChatToolRun[] }
 const messages = ref<ChatMessage[]>([])
 const router = useRouter()
 const input = ref('')
@@ -19,10 +23,11 @@ const chatRef = ref<HTMLElement>()
 let abortController: AbortController | null = null
 const conversationId = ref<number | null>(null)
 const sidebarRef = ref<InstanceType<typeof ConversationSidebar>>()
+const submittedFormIds = ref(new Set<string>())
 
-const suggestions = ['帮我总结一下最近的错题', '分析一下我的薄弱环节', '给我一些学习建议', '用表格对比 abandon 和 desert 的区别']
+const suggestions = ['帮我出一些题', '帮我总结一下最近的错题', '分析一下我的薄弱环节', '用表格对比 abandon 和 desert 的区别']
 
-function legacyPracticeTool(content: string): ToolRun[] {
+function legacyPracticeTool(content: string): ChatToolRun[] {
   if (!/(练习已就绪|练习已准备好|开始这轮练习)/.test(content)) return []
   const count = Number(content.match(/(\d+)\s*(?:题|道)/)?.[1] || 10)
   const cloze = /完形|cloze/i.test(content)
@@ -41,13 +46,18 @@ async function selectConversation(id: number) {
   try {
     const { data } = await api.get(`/ai/conversation/${id}/messages`)
     const msgs = data as ConversationMessage[]
+    submittedFormIds.value = new Set(
+      msgs.map(m => m.role === 'user' ? formSubmissionToolId(m.content) : null)
+        .filter((toolId): toolId is string => Boolean(toolId)),
+    )
     messages.value = msgs.map(m => ({
       role: m.role,
-      content: m.content,
-      tools: m.tools?.length ? m.tools as ToolRun[] : legacyPracticeTool(m.content)
+      content: m.role === 'user' ? visibleChatContent(m.content) : m.content,
+      tools: m.tools?.length ? m.tools : legacyPracticeTool(m.content)
     }))
   } catch {
     messages.value = []
+    submittedFormIds.value = new Set()
   }
   nextTick(() => {
     chatRef.value?.scrollTo({ top: chatRef.value.scrollHeight })
@@ -59,6 +69,7 @@ function newChat() {
   cancelStream()
   conversationId.value = null
   messages.value = []
+  submittedFormIds.value = new Set()
 }
 
 /** 删除对话 */
@@ -71,7 +82,12 @@ function onDeleted(id: number) {
 async function send() {
   if (!input.value.trim() || loading.value) return
   const msg = input.value.trim(); input.value = ''
-  messages.value.push({ role: 'user', content: msg })
+  await streamMessage(msg)
+}
+
+async function streamMessage(msg: string) {
+  if (!msg.trim() || loading.value) return
+  messages.value.push({ role: 'user', content: visibleChatContent(msg) })
 
   // 创建空的 AI 气泡用于流式填充
   messages.value.push({ role: 'assistant', content: '', tools: [] })
@@ -138,7 +154,7 @@ async function send() {
         }
       } else if (eventType === 'tool') {
         try {
-          const tool = JSON.parse(text) as ToolRun
+          const tool = JSON.parse(text) as ChatToolRun
           const last = messages.value[messages.value.length - 1]
           if (last?.role === 'assistant') {
             const tools = [...(last.tools || [])]
@@ -199,9 +215,19 @@ async function send() {
   }
 }
 
-function runToolAction(action?: ToolAction) {
+function runToolAction(action?: ChatToolAction) {
   if (!action || action.type !== 'start_practice') return
   router.push({ path: action.route, query: action.query || {} })
+}
+
+function submitToolForm(tool: ChatToolRun, values: Record<string, string | number>) {
+  if (tool.action?.type !== 'input_form' || loading.value || submittedFormIds.value.has(tool.id)) return
+  submittedFormIds.value = new Set([...submittedFormIds.value, tool.id])
+  void streamMessage(buildQuestionFormSubmission(tool.id, values))
+}
+
+function isFormSubmitted(toolId: string) {
+  return submittedFormIds.value.has(toolId)
 }
 
 function cancelStream() {
@@ -239,16 +265,32 @@ onUnmounted(() => abortController?.abort())
             <div class="msg-avatar">{{m.role==='user'?'我':'AI'}}</div>
             <div class="msg-bubble">
               <div v-if="m.role==='assistant' && m.tools?.length" class="tool-stack">
-                <div v-for="tool in m.tools" :key="tool.id" :class="['tool-card',tool.phase]">
+                <div
+                  v-for="tool in m.tools"
+                  :key="tool.id"
+                  :class="['tool-card',tool.phase,{ 'input-form': tool.action?.type==='input_form' }]"
+                >
                   <div class="tool-orb">
                     <span v-if="tool.phase==='start'" class="tool-spinner" />
                     <svg v-else-if="tool.phase==='done'" viewBox="0 0 24 24"><path d="m5 12 4 4L19 6"/></svg>
                     <svg v-else viewBox="0 0 24 24"><path d="m7 7 10 10M17 7 7 17"/></svg>
                   </div>
                   <div class="tool-copy"><strong>{{tool.title}}</strong><span v-if="tool.summary">{{tool.summary}}</span></div>
-                  <button v-if="tool.phase==='done'&&tool.action" class="tool-action" @click="runToolAction(tool.action)">
+                  <button
+                    v-if="tool.phase==='done'&&tool.action?.type==='start_practice'"
+                    class="tool-action"
+                    @click="runToolAction(tool.action)"
+                  >
                     {{tool.action.label}} <span>→</span>
                   </button>
+                  <div v-if="tool.phase==='done'&&tool.action?.type==='input_form'" class="tool-form-slot">
+                    <AiFormCard
+                      :action="tool.action"
+                      :disabled="loading || !conversationId"
+                      :submitted="isFormSubmitted(tool.id)"
+                      @submit="submitToolForm(tool,$event)"
+                    />
+                  </div>
                 </div>
               </div>
               <MarkdownRenderer v-if="m.role==='assistant'" :content="m.content"/>
@@ -306,6 +348,8 @@ onUnmounted(() => abortController?.abort())
 .tool-card{display:flex;align-items:center;gap:11px;min-width:min(430px,62vw);padding:11px 12px;border:1px solid rgba(232,115,74,.13);border-radius:14px;background:linear-gradient(135deg,rgba(255,249,246,.94),rgba(255,255,255,.82));box-shadow:inset 0 1px 0 rgba(255,255,255,.9)}
 .tool-card.done{border-color:rgba(75,170,117,.2);background:linear-gradient(135deg,rgba(242,252,247,.95),rgba(255,255,255,.86))}
 .tool-card.error{border-color:rgba(205,82,76,.2);background:rgba(255,246,245,.9)}
+.tool-card.input-form{flex-wrap:wrap;min-width:min(540px,68vw)}
+.tool-form-slot{flex:0 0 100%;box-sizing:border-box;padding-left:41px}
 .tool-orb{width:30px;height:30px;display:grid;place-items:center;flex:0 0 auto;border-radius:10px;color:#e8734a;background:rgba(232,115,74,.1)}
 .tool-card.done .tool-orb{color:#2f9a65;background:rgba(47,154,101,.1)}.tool-card.error .tool-orb{color:#c94a4a}
 .tool-orb svg{width:17px;height:17px;fill:none;stroke:currentColor;stroke-width:2.2;stroke-linecap:round;stroke-linejoin:round}
@@ -326,5 +370,5 @@ onUnmounted(() => abortController?.abort())
 .send-btn.stop{background:#c94a4a}
 @media(max-width:820px){.chat-body{width:calc(100% - 24px);gap:10px;margin:10px auto 12px}.chat-layout{padding:0 12px}.msg-bubble{max-width:86%}}
 @media(max-width:680px){.chat-body{width:calc(100% - 16px);margin-top:8px}.chat-layout{border-radius:17px}.chat-empty{padding-top:48px}.suggestions{gap:7px}.sug-btn{padding:9px 13px;font-size:12px}}
-@media(max-width:680px){.tool-card{min-width:0;align-items:flex-start;flex-wrap:wrap}.tool-action{width:100%;margin-left:41px}}
+@media(max-width:680px){.tool-card,.tool-card.input-form{min-width:0;align-items:flex-start;flex-wrap:wrap}.tool-action{width:100%;margin-left:41px}.tool-form-slot{padding-left:0}}
 </style>

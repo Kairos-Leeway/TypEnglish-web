@@ -103,6 +103,50 @@ export interface Conversation {
   updateTime: string
 }
 
+export interface ChatToolOption {
+  label: string
+  value: string | number
+}
+
+export interface ChatToolFormField {
+  name: string
+  type: 'text' | 'number' | 'select' | 'rating'
+  label: string
+  required?: boolean
+  defaultValue?: string | number
+  placeholder?: string
+  min?: number
+  max?: number
+  step?: number
+  maxLength?: number
+  options?: ChatToolOption[]
+}
+
+export interface StartPracticeToolAction {
+  type: 'start_practice'
+  label: string
+  route: string
+  query?: Record<string, string | number>
+}
+
+export interface InputFormToolAction {
+  type: 'input_form'
+  formId: 'question_generation'
+  label: string
+  fields: ChatToolFormField[]
+}
+
+export type ChatToolAction = StartPracticeToolAction | InputFormToolAction
+
+export interface ChatToolRun {
+  id: string
+  phase: 'start' | 'done' | 'error'
+  name: string
+  title: string
+  summary?: string
+  action?: ChatToolAction
+}
+
 /** AI 对话消息 */
 export interface ConversationMessage {
   id: number
@@ -110,13 +154,6 @@ export interface ConversationMessage {
   userId: number
   role: 'user' | 'assistant'
   content: string
-  tools?: Array<{
-    id: string
-    phase: 'start' | 'done' | 'error'
-    name: string
-    title: string
-    summary?: string
-    action?: { type: string; label: string; route: string; query?: Record<string, string | number> }
-  }>
+  tools?: ChatToolRun[]
   createTime: string
 }
